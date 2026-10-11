@@ -1,0 +1,1 @@
+ALTER TYPE "PatternStatus" ADD VALUE 'REJECTED';

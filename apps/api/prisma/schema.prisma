@@ -1,0 +1,379 @@
+// Sprint 0 model starter. NOT the final domain model. No official patterns seeded.
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum ExamFamilyCode {
+  UGC_NET
+  CSIR_NET
+  STATE_SET_SLET
+}
+
+enum PatternStatus {
+  RESEARCH_ONLY
+  DISCOVERED
+  RESEARCHED
+  DRAFT
+  SME_REVIEWED
+  APPROVED
+  PUBLISHED
+  SUPERSEDED
+  REJECTED
+}
+
+enum AccountRole {
+  STUDENT
+  SME
+  ADMIN
+}
+
+enum AuditEventType {
+  ACCOUNT_REGISTERED
+  ACCOUNT_EMAIL_VERIFIED
+  PASSWORD_RESET_REQUESTED
+  PASSWORD_RESET_COMPLETED
+  LOGIN_SUCCEEDED
+  LOGIN_FAILED
+  SESSION_REVOKED
+  ROLE_ACCESS_DENIED
+  CATALOGUE_EXAM_CREATED
+  CATALOGUE_EXAM_UPDATED
+  PATTERN_DRAFT_CREATED
+  PATTERN_SUBMITTED_FOR_REVIEW
+  PATTERN_APPROVED
+  PATTERN_REJECTED
+  PATTERN_PUBLISHED
+  PATTERN_SUPERSEDED
+}
+
+enum JurisdictionType {
+  NATIONAL
+  STATE
+  UNION_TERRITORY
+  REGIONAL
+}
+
+enum PatternApprovalDecision {
+  APPROVED
+  REJECTED
+}
+
+enum DeliveryMode {
+  CBT
+  OMR_SIMULATION
+}
+
+enum SessionTimingPolicy {
+  CONTINUOUS
+  INDEPENDENT
+  SEQUENTIAL_LOCKED
+}
+
+enum AnswerPolicy {
+  SINGLE_SELECT
+  MULTI_SELECT
+  EXACT_MATCH
+}
+
+model Examination {
+  id            String                    @id @default(uuid()) @db.Uuid
+  code          String                    @unique @db.VarChar(48)
+  name          String                    @db.VarChar(200)
+  family        ExamFamilyCode
+  organizerId   String                    @db.Uuid
+  organizer     ExamOrganizer             @relation(fields: [organizerId], references: [id], onDelete: Restrict)
+  cycles        ExamCycle[]
+  jurisdictions ExaminationJurisdiction[]
+  createdAt     DateTime                  @default(now())
+  updatedAt     DateTime                  @updatedAt
+
+  @@index([family])
+  @@index([organizerId])
+}
+
+model ExamOrganizer {
+  id              String        @id @default(uuid()) @db.Uuid
+  code            String        @unique @db.VarChar(64)
+  name            String        @db.VarChar(200)
+  officialWebsite String?       @db.Text
+  examinations    Examination[]
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+}
+
+model Jurisdiction {
+  id           String                    @id @default(uuid()) @db.Uuid
+  code         String                    @unique @db.VarChar(64)
+  name         String                    @db.VarChar(160)
+  type         JurisdictionType
+  examinations ExaminationJurisdiction[]
+  createdAt    DateTime                  @default(now())
+  updatedAt    DateTime                  @updatedAt
+}
+
+model ExaminationJurisdiction {
+  examinationId  String       @db.Uuid
+  jurisdictionId String       @db.Uuid
+  examination    Examination  @relation(fields: [examinationId], references: [id], onDelete: Cascade)
+  jurisdiction   Jurisdiction @relation(fields: [jurisdictionId], references: [id], onDelete: Restrict)
+  createdAt      DateTime     @default(now())
+
+  @@id([examinationId, jurisdictionId])
+  @@index([jurisdictionId])
+}
+
+model ExamCycle {
+  id            String               @id @default(uuid()) @db.Uuid
+  examinationId String               @db.Uuid
+  examination   Examination          @relation(fields: [examinationId], references: [id], onDelete: Restrict)
+  code          String               @db.VarChar(60)
+  versions      ExamPatternVersion[]
+  subjects      ExamSubject[]
+  createdAt     DateTime             @default(now())
+
+  @@unique([examinationId, code])
+}
+
+model ExamPatternVersion {
+  id                String                   @id @default(uuid()) @db.Uuid
+  examCycleId       String                   @db.Uuid
+  examCycle         ExamCycle                @relation(fields: [examCycleId], references: [id], onDelete: Restrict)
+  subjectCode       String                   @default("GENERAL") @db.VarChar(80)
+  version           Int
+  status            PatternStatus            @default(RESEARCH_ONLY)
+  sourceUrl         String?                  @db.Text
+  reviewedBy        String?                  @db.VarChar(120)
+  reviewedAt        DateTime?
+  approvedAt        DateTime?
+  publishedAt       DateTime?
+  ruleHash          String?                  @db.VarChar(128)
+  rules             Json
+  publishedSnapshot Json?
+  createdAt         DateTime                 @default(now())
+  evidence          PatternEvidence?
+  approvals         PatternApproval[]
+  auditEvents       AuditEvent[]
+  sessions          ExamSessionConfig[]
+  subjectOverrides  SubjectPatternOverride[]
+  languagePolicies  LanguagePolicy[]
+  ruleSources       ExamRuleSource[]
+
+  @@unique([examCycleId, subjectCode, version])
+  @@index([status])
+  @@index([examCycleId, subjectCode, status])
+}
+
+model PatternEvidence {
+  id                    String             @id @default(uuid()) @db.Uuid
+  patternVersionId      String             @unique @db.Uuid
+  patternVersion        ExamPatternVersion @relation(fields: [patternVersionId], references: [id], onDelete: Cascade)
+  officialSourceUrl     String             @db.Text
+  sourceDocumentHash    String             @db.VarChar(128)
+  sourcePublishedAt     DateTime?
+  effectiveAt           DateTime?
+  officialDocumentTitle String             @default("") @db.VarChar(300)
+  issuingAuthority      String             @default("") @db.VarChar(240)
+  evidenceExcerpt       String             @default("") @db.Text
+  artifactReference     String?            @db.Text
+  questionBankCoverage  Json?
+  regressionReportId    String             @db.VarChar(160)
+  submittedById         String             @db.Uuid
+  submittedBy           Account            @relation(fields: [submittedById], references: [id], onDelete: Restrict)
+  createdAt             DateTime           @default(now())
+}
+
+model ExamSubject {
+  id          String                   @id @default(uuid()) @db.Uuid
+  examCycleId String                   @db.Uuid
+  examCycle   ExamCycle                @relation(fields: [examCycleId], references: [id], onDelete: Cascade)
+  code        String                   @db.VarChar(80)
+  name        String                   @db.VarChar(200)
+  status      PatternStatus            @default(RESEARCH_ONLY)
+  createdAt   DateTime                 @default(now())
+  overrides   SubjectPatternOverride[]
+
+  @@unique([examCycleId, code])
+  @@index([status])
+}
+
+model SubjectPatternOverride {
+  id               String             @id @default(uuid()) @db.Uuid
+  patternVersionId String             @db.Uuid
+  patternVersion   ExamPatternVersion @relation(fields: [patternVersionId], references: [id], onDelete: Cascade)
+  subjectCode      String             @db.VarChar(80)
+  rules            Json
+  ruleHash         String             @db.VarChar(128)
+  createdAt        DateTime           @default(now())
+  examSubject      ExamSubject?       @relation(fields: [examSubjectId], references: [id])
+  examSubjectId    String?            @db.Uuid
+
+  @@unique([patternVersionId, subjectCode])
+  @@index([subjectCode])
+}
+
+model ExamSessionConfig {
+  id               String              @id @default(uuid()) @db.Uuid
+  patternVersionId String              @db.Uuid
+  patternVersion   ExamPatternVersion  @relation(fields: [patternVersionId], references: [id], onDelete: Cascade)
+  key              String              @db.VarChar(80)
+  deliveryMode     DeliveryMode
+  timingPolicy     SessionTimingPolicy
+  durationSeconds  Int
+  sequence         Int
+  submitSeparately Boolean             @default(false)
+  allowReturn      Boolean             @default(true)
+  sections         ExamSectionConfig[]
+  createdAt        DateTime            @default(now())
+
+  @@unique([patternVersionId, key])
+  @@index([patternVersionId, sequence])
+}
+
+model ExamSectionConfig {
+  id               String            @id @default(uuid()) @db.Uuid
+  sessionConfigId  String            @db.Uuid
+  sessionConfig    ExamSessionConfig @relation(fields: [sessionConfigId], references: [id], onDelete: Cascade)
+  key              String            @db.VarChar(80)
+  offeredQuestions Int
+  maximumAttempts  Int
+  answerPolicy     AnswerPolicy
+  scoring          ScoringPolicy?
+  createdAt        DateTime          @default(now())
+
+  @@unique([sessionConfigId, key])
+}
+
+model ScoringPolicy {
+  id                   String            @id @default(uuid()) @db.Uuid
+  sectionConfigId      String            @unique @db.Uuid
+  sectionConfig        ExamSectionConfig @relation(fields: [sectionConfigId], references: [id], onDelete: Cascade)
+  marksCorrect         Decimal           @db.Decimal(10, 4)
+  marksWrong           Decimal           @db.Decimal(10, 4)
+  exactMatch           Boolean           @default(false)
+  allowMultipleCorrect Boolean           @default(false)
+  createdAt            DateTime          @default(now())
+}
+
+model LanguagePolicy {
+  id               String             @id @default(uuid()) @db.Uuid
+  patternVersionId String             @db.Uuid
+  patternVersion   ExamPatternVersion @relation(fields: [patternVersionId], references: [id], onDelete: Cascade)
+  languageCode     String             @db.VarChar(20)
+  isFallback       Boolean            @default(false)
+  createdAt        DateTime           @default(now())
+
+  @@unique([patternVersionId, languageCode])
+}
+
+model ExamRuleSource {
+  id                String             @id @default(uuid()) @db.Uuid
+  patternVersionId  String             @db.Uuid
+  patternVersion    ExamPatternVersion @relation(fields: [patternVersionId], references: [id], onDelete: Cascade)
+  title             String             @db.VarChar(300)
+  issuingAuthority  String             @db.VarChar(240)
+  cycleCode         String             @db.VarChar(60)
+  publicationDate   DateTime?
+  effectiveDate     DateTime?
+  sourceUrl         String             @db.Text
+  evidenceExcerpt   String             @db.Text
+  documentHash      String             @db.VarChar(128)
+  artifactReference String?            @db.Text
+  rightsNote        String?            @db.Text
+  createdAt         DateTime           @default(now())
+
+  @@index([patternVersionId])
+}
+
+model PatternApproval {
+  id                 String                  @id @default(uuid()) @db.Uuid
+  patternVersionId   String                  @db.Uuid
+  patternVersion     ExamPatternVersion      @relation(fields: [patternVersionId], references: [id], onDelete: Cascade)
+  reviewerId         String                  @db.Uuid
+  reviewer           Account                 @relation(fields: [reviewerId], references: [id], onDelete: Restrict)
+  decision           PatternApprovalDecision
+  notes              String?                 @db.Text
+  ruleHash           String                  @db.VarChar(128)
+  regressionReportId String                  @db.VarChar(160)
+  createdAt          DateTime                @default(now())
+
+  @@index([patternVersionId, createdAt])
+  @@index([reviewerId, createdAt])
+}
+
+model Account {
+  id                       String            @id @default(uuid()) @db.Uuid
+  email                    String            @unique @db.VarChar(320)
+  passwordHash             String            @db.VarChar(255)
+  role                     AccountRole       @default(STUDENT)
+  emailVerifiedAt          DateTime?
+  createdAt                DateTime          @default(now())
+  updatedAt                DateTime          @updatedAt
+  sessions                 Session[]
+  auditEvents              AuditEvent[]
+  submittedPatternEvidence PatternEvidence[]
+  patternApprovals         PatternApproval[]
+  emailVerificationTokens  EmailVerificationToken[]
+  passwordResetTokens      PasswordResetToken[]
+}
+
+model Session {
+  id         String    @id @default(uuid()) @db.Uuid
+  accountId  String    @db.Uuid
+  account    Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  tokenHash  String    @unique @db.Char(64)
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+  lastSeenAt DateTime  @default(now())
+  ipAddress  String?   @db.VarChar(64)
+  userAgent  String?   @db.VarChar(512)
+
+  @@index([accountId, expiresAt])
+  @@index([expiresAt])
+}
+
+model EmailVerificationToken {
+  id        String    @id @default(uuid()) @db.Uuid
+  accountId String    @db.Uuid
+  account   Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique @db.Char(64)
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([accountId, expiresAt])
+}
+
+model PasswordResetToken {
+  id        String    @id @default(uuid()) @db.Uuid
+  accountId String    @db.Uuid
+  account   Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique @db.Char(64)
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([accountId, expiresAt])
+}
+
+model AuditEvent {
+  id               String              @id @default(uuid()) @db.Uuid
+  type             AuditEventType
+  accountId        String?             @db.Uuid
+  account          Account?            @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  patternVersionId String?             @db.Uuid
+  patternVersion   ExamPatternVersion? @relation(fields: [patternVersionId], references: [id], onDelete: SetNull)
+  ipAddress        String?             @db.VarChar(64)
+  metadata         Json?
+  createdAt        DateTime            @default(now())
+
+  @@index([accountId, createdAt])
+  @@index([type, createdAt])
+  @@index([patternVersionId, createdAt])
+}

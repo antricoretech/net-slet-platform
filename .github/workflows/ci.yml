@@ -1,0 +1,65 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: netslet_dev
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres -d netslet_dev"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+      redis:
+        image: redis:7.4-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/netslet_dev?schema=public
+      REDIS_URL: redis://localhost:6379
+      WEB_ORIGIN: http://localhost:3000
+      WEB_ORIGINS: http://localhost:3000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.19.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: pnpm
+      - name: Install reproducibly
+        run: pnpm install --frozen-lockfile
+      - name: Generate database client
+        run: pnpm db:generate
+      - name: Apply database migrations
+        run: pnpm --filter @net-slet/api exec prisma migrate deploy
+      - name: Validate workspace
+        run: pnpm verify:structure
+      - name: Type-check
+        run: pnpm typecheck
+      - name: Run unit tests
+        run: pnpm test
+      - name: Lint
+        run: pnpm lint
+      - name: Build all
+        run: pnpm build
+      - name: Database integration checks
+        run: pnpm test:integration
+      - name: Install Playwright browser
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Browser journeys
+        run: pnpm test:e2e

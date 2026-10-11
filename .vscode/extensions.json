@@ -1,0 +1,10 @@
+{
+  "recommendations": [
+    "openai.chatgpt",
+    "dbaeumer.vscode-eslint",
+    "bradlc.vscode-tailwindcss",
+    "Prisma.prisma",
+    "ms-azuretools.vscode-docker",
+    "eamodio.gitlens"
+  ]
+}

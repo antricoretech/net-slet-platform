@@ -1,0 +1,27 @@
+{
+  "name": "net-slet-platform",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@10.19.0",
+  "engines": {
+    "node": ">=24.11.0 <25"
+  },
+  "scripts": {
+    "dev": "pnpm --parallel --filter @net-slet/web --filter @net-slet/api dev",
+    "build": "pnpm --filter @net-slet/exam-rules build && pnpm --filter @net-slet/api build && pnpm --filter @net-slet/web build",
+    "typecheck": "pnpm --filter @net-slet/exam-rules build && pnpm --filter @net-slet/api typecheck && pnpm --filter @net-slet/web typecheck",
+    "test": "pnpm --filter @net-slet/exam-rules test && pnpm --filter @net-slet/api test",
+    "lint": "pnpm --filter @net-slet/web lint && pnpm --filter @net-slet/api lint",
+    "verify:structure": "node scripts/check-structure.mjs",
+    "smoke": "node scripts/smoke.mjs",
+    "test:e2e": "playwright test",
+    "test:integration": "node apps/api/scripts/integration.mjs",
+    "db:generate": "pnpm --filter @net-slet/api db:generate",
+    "db:migrate": "pnpm --filter @net-slet/api db:migrate",
+    "infra:up": "docker compose up -d",
+    "infra:down": "docker compose down"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.64.0"
+  }
+}
