@@ -6,6 +6,7 @@ export type ReviewStatus = 'RESEARCH_ONLY' | 'DISCOVERED' | 'RESEARCHED' | 'DRAF
 export type DeliveryMode = 'CBT' | 'OMR_SIMULATION';
 export type SessionTimingPolicy = 'CONTINUOUS' | 'INDEPENDENT' | 'SEQUENTIAL_LOCKED';
 export type AnswerPolicy = 'SINGLE_SELECT' | 'MULTI_SELECT' | 'EXACT_MATCH';
+import type { QuestionType } from './contracts';
 export interface SectionBlueprint {
   key: string;
   durationSeconds: number;
@@ -16,6 +17,8 @@ export interface SectionBlueprint {
   marksWrong?: string | number;
   exactMatch?: boolean;
   allowMultipleCorrect?: boolean;
+  questionTypes?: QuestionType[];
+  grouped?: boolean;
 }
 export interface SessionBlueprint {
   key: string;
@@ -70,6 +73,7 @@ function validateSection(part: SectionBlueprint, keys: Set<string>, errors: stri
     if (value !== undefined && (!/^(?:0|[1-9]\d*)(?:\.\d{1,4})?$/.test(String(value)) || Number(value) < 0)) errors.push(`Invalid ${name}: ${qualifiedKey}`);
   }
   if (part.answerPolicy === 'EXACT_MATCH' && part.allowMultipleCorrect !== true) errors.push(`Exact-match sections must allow multiple correct answers: ${qualifiedKey}`);
+  if (part.questionTypes && (part.questionTypes.length === 0 || new Set(part.questionTypes).size !== part.questionTypes.length)) errors.push(`Question types must be unique: ${qualifiedKey}`);
 }
 /** Metadata check only: this does not authenticate a reviewer or verify a bulletin. */
 export function hasPublicationMetadata(blueprint: ExamBlueprint): boolean {
@@ -83,3 +87,20 @@ export function hasPublicationMetadata(blueprint: ExamBlueprint): boolean {
   } catch { return false; }
   return !Number.isNaN(Date.parse(evidence.approvedAt));
 }
+
+export * from './contracts';
+export * from './form';
+export * from './attempt';
+export * from './palette';
+export * from './attempt-engine';
+export * from './attempt-contracts';
+export * from './scoring';
+export * from './scoring-policy';
+export * from './results';
+export * from './analytics';
+export * from './strategy';
+export * from './rescore';
+export * from './practice';
+export * from './mistake-mine';
+export * from './learning-governance';
+export * from './prep-pilot';

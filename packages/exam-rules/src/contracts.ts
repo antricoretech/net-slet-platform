@@ -1,0 +1,13 @@
+import type { ExamBlueprint } from './index';
+
+export type QuestionType = 'SINGLE_CHOICE' | 'MULTIPLE_CHOICE' | 'ASSERTION_REASON' | 'MATCHING' | 'ORDERING' | 'READING_COMPREHENSION' | 'DATA_INTERPRETATION' | 'MATHEMATICAL';
+export interface PublishedQuestionInput { id: string; questionVersionId: string; status: 'PUBLISHED'; examCode: string; cycleCode: string; subjectCode: string; sectionKey: string; type: QuestionType; languageCodes: string[]; prompt: string; options?: readonly { id: string; label: string }[]; groupId?: string; groupSequence?: number; content?: { readonly table?: readonly (readonly string[])[]; readonly imageAlt?: string; readonly mathText?: string; }; syllabusUnitId?: string; topicIds?: readonly string[]; difficulty?: 'EASY' | 'MEDIUM' | 'HARD'; difficultyEvidence?: 'REVIEWED' | 'UNAVAILABLE'; }
+export interface StudentQuestionProjection { readonly questionVersionId: string; readonly type: QuestionType; readonly prompt: string; readonly options: readonly { readonly id: string; readonly label: string }[]; readonly languageCode: string; readonly groupId?: string; readonly content?: { readonly table?: readonly (readonly string[])[]; readonly imageAlt?: string; readonly mathText?: string; } }
+export interface CandidateSection { readonly key: string; readonly sequence: number; readonly questionVersionIds: readonly string[]; }
+export interface CandidateBlueprintSummary { readonly examCode: string; readonly cycleCode: string; readonly subjectCode: string; readonly sections: readonly CandidateSection[]; }
+export interface CandidateInstructions { readonly title: string; readonly body: readonly string[]; readonly noOfficialStatusNotice: string; }
+export interface CandidateAttemptState { readonly status: 'CREATED' | 'READY' | 'IN_PROGRESS' | 'SUBMITTED' | 'EXPIRED'; readonly deadlineAt?: string; readonly remainingSeconds: number; readonly currentQuestionIndex: number; }
+export interface AnswerSaveRequest { readonly attemptId: string; readonly questionVersionId: string; readonly selectedOptionIds: readonly string[]; readonly expectedRevision: number; readonly idempotencyKey: string; }
+export interface TimerInfo { readonly deadlineAt: string; readonly serverNow: string; readonly remainingSeconds: number; }
+export interface TestFormSnapshot { readonly snapshotId: string; readonly snapshotHash: string; readonly generatedAt: string; readonly seed: string; readonly blueprint: CandidateBlueprintSummary; readonly sections: readonly { readonly key: string; readonly sequence: number; readonly questions: readonly StudentQuestionProjection[] }[]; }
+export type BlueprintForForm = ExamBlueprint & { readonly version?: number; readonly ruleHash?: string };
