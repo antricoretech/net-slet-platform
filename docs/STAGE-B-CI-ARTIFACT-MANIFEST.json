@@ -1,0 +1,23 @@
+{
+  "status": "CANDIDATE / AWAITING APPROVAL",
+  "provenance": {
+    "branch": "migration-recovery/stage-a-20261012",
+    "sourceCommitAtReviewStart": "b47fe4e",
+    "githubActionsExecution": "NOT VERIFIED",
+    "secretsIncluded": false,
+    "activeDatabaseModified": false
+  },
+  "artifacts": [
+    { "path": "recovery/stage-a/prisma/migrations/20261012000000_stage_a_consolidated_baseline/migration.sql", "sha256": "1C00968DC3690D35DD0507E8C24625AA093A3483B0B3ECC79EFD9553DFCF0E34" },
+    { "path": "recovery/stage-a/prisma/migrations/migration_lock.toml", "sha256": "99836963713B4F5B269AD49AF0ED3D7B0B2E336115C2F92DC9AC683D139D0900" },
+    { "path": "apps/api/prisma/schema.prisma", "sha256": "A693EA67DA07DF175CF36B6598B7564CCD5E1E6D9384780C3DA708F902A54043" },
+    { "path": "pnpm-lock.yaml", "sha256": "140DB312B839190B24EA583992CDE931B944AE266E58A7DA662401FB72EDC24B" },
+    { "path": ".github/workflows/recovery-candidate.yml", "sha256": "F37DFD305F6051BC0E937CD966AFAF657CE84D38E001A49B21710EBEF0B38206" },
+    { "path": "scripts/run-cold-start-qa.ps1", "sha256": "CB470AD09500D313ED4F28A3960F859C407B55142E691E0EB452A99F7F474A97" },
+    { "path": "scripts/verify-recovery-schema.mjs", "sha256": "33A77157FF4DB328E884B4B5DCD20249A019638933A28EFFD8954A010969306F" },
+    { "path": "playwright.config.ts", "sha256": "483A260334FBCCC1BF7EBD00D5568D1937FE9A9E9122E95A4E2E87640AB20DBC" },
+    { "path": "apps/api/scripts/integration.mjs", "sha256": "7381FCC5A2B54A3C0590BB218EEC7FD0EBACE133A750D94B07ED7FE992998413" },
+    { "path": "docs/STAGE-B-CI-ARTIFACT-COLD-START-QA-REPORT.md", "sha256": "032DDB8D500D1ED7B3C1EEBFA18C692E0950D06256E1182CE7D217B295D83F45" },
+    { "path": "docs/STAGE-B-FORMAL-APPROVAL-REQUEST.md", "sha256": "A6BC66138768342F5700C483FEF2E8EF476F9031E051120B417E53AB4C4868A2" }
+  ]
+}

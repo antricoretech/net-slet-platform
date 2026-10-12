@@ -1,0 +1,52 @@
+[
+    {
+        "trial":  1,
+        "exitCode":  0,
+        "durationSeconds":  53
+    },
+    {
+        "trial":  2,
+        "exitCode":  0,
+        "durationSeconds":  44.4
+    },
+    {
+        "trial":  3,
+        "exitCode":  0,
+        "durationSeconds":  44.2
+    },
+    {
+        "trial":  4,
+        "exitCode":  0,
+        "durationSeconds":  38.7
+    },
+    {
+        "trial":  5,
+        "exitCode":  0,
+        "durationSeconds":  41.2
+    },
+    {
+        "trial":  6,
+        "exitCode":  0,
+        "durationSeconds":  38.9
+    },
+    {
+        "trial":  7,
+        "exitCode":  0,
+        "durationSeconds":  59.9
+    },
+    {
+        "trial":  8,
+        "exitCode":  0,
+        "durationSeconds":  48.8
+    },
+    {
+        "trial":  9,
+        "exitCode":  0,
+        "durationSeconds":  49.5
+    },
+    {
+        "trial":  10,
+        "exitCode":  0,
+        "durationSeconds":  47.7
+    }
+]

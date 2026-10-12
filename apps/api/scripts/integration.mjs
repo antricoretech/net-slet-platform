@@ -20,7 +20,9 @@ await client.connect();
 try {
   if (process.env.STAGE_A_REHEARSAL === '1') {
     const identity = await client.query('SELECT current_database() AS name, inet_server_port() AS port');
-    if (!identity.rows[0]?.name?.startsWith('stage_a_') || identity.rows[0]?.port !== 5432 || new URL(connectionString).port !== '55432') {
+    const expectedServerPort = Number(process.env.STAGE_A_REHEARSAL_SERVER_PORT ?? 5432);
+    const expectedUrlPort = Number(process.env.STAGE_A_REHEARSAL_PORT ?? 55432);
+    if (!identity.rows[0]?.name?.startsWith('stage_a_') || identity.rows[0]?.port !== expectedServerPort || Number(new URL(connectionString).port || 5432) !== expectedUrlPort) {
       throw new Error('Stage A rehearsal must target the isolated PostgreSQL instance');
     }
   }

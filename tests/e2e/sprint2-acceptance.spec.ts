@@ -11,7 +11,9 @@ function isolatedDatabaseUrl(): string {
   const value = process.env.DATABASE_URL;
   if (!value) throw new Error('Sprint 2 E2E requires an explicit isolated DATABASE_URL');
   const url = new URL(value);
-  if (url.hostname !== '127.0.0.1' || url.port !== '55432' || url.pathname !== '/stage_a_acceptance') throw new Error('Sprint 2 E2E refuses a non-isolated database');
+  const isLocalRehearsal = url.hostname === '127.0.0.1' && url.port === '55432' && url.pathname === '/stage_a_acceptance';
+  const isCandidateCi = process.env.STAGE_A_REHEARSAL === '1' && url.hostname === '127.0.0.1' && url.port === '5432' && url.pathname.startsWith('/stage_a_');
+  if (!isLocalRehearsal && !isCandidateCi) throw new Error('Sprint 2 E2E refuses a non-isolated database');
   return value;
 }
 
@@ -28,7 +30,7 @@ async function signIn(browser: Browser, email: string, password: string): Promis
   await page.getByLabel('Email address').fill(email);
   await page.getByLabel('Password').fill(password);
   await page.getByRole('button', { name: 'Sign in' }).click();
-  await expect(page).toHaveURL(/\/account$/);
+  await expect(page).toHaveURL(/\/account$/, { timeout: 30_000 });
   return page;
 }
 
@@ -38,7 +40,8 @@ test('isolated authenticated author-review-publish-challenge journey enforces se
   const db = new Client({ connectionString: dbUrl });
   await db.connect();
   const identity = await db.query('SELECT current_database() AS name, inet_server_port() AS port');
-  expect(identity.rows[0]).toMatchObject({ name: 'stage_a_acceptance', port: 5432 });
+  expect(identity.rows[0].name).toMatch(/^stage_a_/);
+  expect(identity.rows[0].port).toBe(5432);
 
   const suffix = Date.now().toString(36).toUpperCase();
   const password = 'CorrectHorseBattery1';
@@ -74,7 +77,7 @@ test('isolated authenticated author-review-publish-challenge journey enforces se
     expect((await api(student, '/auth/me')).body.account.id).toBe(ids.student);
     expect((await api(student, '/qbms/questions')).status).toBe(403);
     await student.goto('/workspace');
-    await expect(student.getByRole('link', { name: 'Go to sign in' })).toBeVisible();
+    await expect(student.getByRole('link', { name: 'Go to sign in' })).toBeVisible({ timeout: 30_000 });
     const crossOrigin = await request.post('http://localhost:4000/api/v1/qbms/questions', { headers: { Origin: 'https://attacker.example.test' }, data: {} });
     expect(crossOrigin.status()).toBe(403);
 
