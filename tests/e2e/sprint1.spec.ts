@@ -8,6 +8,7 @@ const { Client } = requireFromApi('pg') as { Client: new (options: { connectionS
 interface DbClient { connect(): Promise<void>; end(): Promise<void>; query(text: string, values?: unknown[]): Promise<{ rows: Array<Record<string, unknown>> }>; }
 
 function loadDatabaseUrl(): string {
+  if (process.env.DATABASE_URL) return process.env.DATABASE_URL;
   const envPath = path.resolve('apps/api/.env');
   if (fs.existsSync(envPath)) {
     for (const line of fs.readFileSync(envPath, 'utf8').split(/\r?\n/)) {
@@ -15,7 +16,6 @@ function loadDatabaseUrl(): string {
       if (match) return match[1];
     }
   }
-  if (process.env.DATABASE_URL) return process.env.DATABASE_URL;
   throw new Error('DATABASE_URL is required for the administrator E2E fixture');
 }
 
