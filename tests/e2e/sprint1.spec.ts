@@ -34,6 +34,13 @@ async function signIn(page: import('@playwright/test').Page, email: string, pass
   await expect(page).toHaveURL(/\/account$/);
 }
 
+test.beforeEach(async ({ request }) => {
+  await expect.poll(async () => {
+    try { return (await request.get('http://127.0.0.1:4000/api/v1/health/ready')).status(); }
+    catch { return 0; }
+  }, { timeout: 60_000 }).toBe(200);
+});
+
 test('student can register, view account, log out and log back in', async ({ page }) => {
   const email = `e2e-${Date.now()}@example.test`;
   const password = 'CorrectHorseBattery1';

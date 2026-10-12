@@ -1,5 +1,5 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { AccountRole, AuditEventType, Prisma, QuestionType, QuestionVersionStatus, RightsStatus } from '../generated/prisma/client';
+import { AccountRole, AuditEventType, Prisma, QuestionType, QuestionVersionStatus, ReviewDecision, RightsStatus } from '../generated/prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { validateAnswerKey, validateQuestionPayload, type AnswerKeyInput, type QuestionOptionInput } from './question.validation';
 
@@ -38,6 +38,14 @@ export class QuestionService {
   async get(id: string, actorId: string, role: AccountRole) {
     const question = await this.database.question.findUnique({ where: { id }, include: { examCycle: { include: { examination: true } }, versions: { orderBy: { version: 'desc' }, include: { options: { orderBy: { sequence: 'asc' } }, answerKeys: { orderBy: { version: 'desc' } }, explanations: { orderBy: { version: 'desc' }, include: { rationales: true } }, mappings: { include: { syllabusTopic: { include: { subjectUnit: { include: { syllabusVersion: true } } } } } }, translations: true, provenance: true, licences: true } } } });
     if (!question) throw new NotFoundException('Question not found');
+    if (role === AccountRole.SME && question.createdById !== actorId) {
+      const submittedIds = question.versions.filter((revision) => revision.status === QuestionVersionStatus.SUBMITTED_FOR_REVIEW).map((revision) => revision.id);
+      if (!submittedIds.length) throw new ForbiddenException('Question review access denied');
+      const assignment = await this.database.questionReview.findFirst({ where: { questionVersionId: { in: submittedIds }, reviewerId: actorId, decision: ReviewDecision.ASSIGNED }, orderBy: { createdAt: 'desc' } });
+      const revision = question.versions.find((item) => item.id === assignment?.questionVersionId);
+      if (!revision) throw new ForbiddenException('Question review access denied');
+      return { ...question, versions: [revision] };
+    }
     this.assertOwner(question.createdById, actorId, role);
     return question;
   }

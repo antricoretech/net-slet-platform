@@ -1,17 +1,17 @@
 import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
-import { QuestionVersionStatus, ReviewDecision, RightsStatus } from '../generated/prisma/client';
+import { AccountRole, QuestionVersionStatus, ReviewDecision, RightsStatus } from '../generated/prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { QuestionReviewService } from './question-review.service';
 import { QuestionChallengeService } from './question-challenge.service';
 
 describe('QuestionReviewService', () => {
   const database: {
-    questionVersion: { findFirst: jest.Mock; updateMany: jest.Mock; findUniqueOrThrow: jest.Mock };
+    questionVersion: { findFirst: jest.Mock; findMany: jest.Mock; updateMany: jest.Mock; findUniqueOrThrow: jest.Mock };
     questionReview: { findFirst: jest.Mock; create: jest.Mock };
     account: { findUnique: jest.Mock };
     $transaction: jest.Mock;
   } = {
-    questionVersion: { findFirst: jest.fn(), updateMany: jest.fn(), findUniqueOrThrow: jest.fn() },
+    questionVersion: { findFirst: jest.fn(), findMany: jest.fn(), updateMany: jest.fn(), findUniqueOrThrow: jest.fn() },
     questionReview: { findFirst: jest.fn(), create: jest.fn() },
     account: { findUnique: jest.fn() },
     $transaction: jest.fn(),
@@ -29,6 +29,12 @@ describe('QuestionReviewService', () => {
   it('blocks an author from reviewing their own submission', async () => {
     database.questionVersion.findFirst.mockResolvedValue({ ...revision, status: QuestionVersionStatus.SUBMITTED_FOR_REVIEW });
     await expect(service.review('question', 'version', { notes: 'review' }, 'author', ReviewDecision.APPROVED)).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('shows an SME only revisions assigned to that reviewer', async () => {
+    database.questionVersion.findMany.mockResolvedValue([]);
+    await service.queue(undefined, 'reviewer', AccountRole.SME);
+    expect(database.questionVersion.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { status: QuestionVersionStatus.SUBMITTED_FOR_REVIEW, reviews: { some: { reviewerId: 'reviewer', decision: ReviewDecision.ASSIGNED } } } }));
   });
 });
 

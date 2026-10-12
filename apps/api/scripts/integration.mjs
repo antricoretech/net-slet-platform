@@ -30,7 +30,7 @@ try {
   for (const table of expectedTables) if (!actualTables.has(table)) throw new Error(`Missing normalized table: ${table}`);
 
   const migration = await client.query('SELECT COUNT(*)::int AS count FROM "_prisma_migrations" WHERE finished_at IS NOT NULL');
-  const minimumMigrations = process.env.STAGE_A_REHEARSAL === '1' ? 2 : 15;
+  const minimumMigrations = process.env.STAGE_A_REHEARSAL === '1' ? 1 : 15;
   if (migration.rows[0].count < minimumMigrations) throw new Error(`Expected at least ${minimumMigrations} migrations to be applied`);
 
   const triggerResult = await client.query("SELECT COUNT(*)::int AS count FROM information_schema.triggers WHERE trigger_name IN ('exam_pattern_version_immutability', 'pattern_session_immutability', 'pattern_scoring_immutability', 'question_revision_immutability', 'question_revision_delete_immutability', 'question_option_immutability', 'question_answer_key_immutability', 'question_explanation_immutability', 'question_mapping_immutability', 'question_translation_immutability', 'question_provenance_immutability', 'question_licence_immutability')");

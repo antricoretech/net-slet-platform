@@ -18,7 +18,7 @@ export class QuestionTrustController {
 
   @Get('review/queue')
   @Roles(AccountRole.SME, AccountRole.ADMIN)
-  queue(@Query('status') status?: string) { const normalized = status?.trim().toUpperCase(); const parsed = normalized && Object.values(QuestionVersionStatus).includes(normalized as QuestionVersionStatus) ? normalized as QuestionVersionStatus : undefined; return this.reviews.queue(parsed); }
+  queue(@Query('status') status: string | undefined, @Req() request: RequestLike) { const normalized = status?.trim().toUpperCase(); const parsed = normalized && Object.values(QuestionVersionStatus).includes(normalized as QuestionVersionStatus) ? normalized as QuestionVersionStatus : undefined; return this.reviews.queue(parsed, request.user!.id, request.user!.role); }
 
   @Get('challenges')
   @Roles(AccountRole.STUDENT, AccountRole.SME, AccountRole.ADMIN)

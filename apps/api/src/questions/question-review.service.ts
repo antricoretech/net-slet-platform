@@ -25,8 +25,8 @@ export class QuestionReviewService {
     return { id: updated.id, status: updated.status, version: updated.version };
   }
 
-  async queue(status: QuestionVersionStatus | undefined) {
-    return this.database.questionVersion.findMany({ where: { status: status ?? QuestionVersionStatus.SUBMITTED_FOR_REVIEW }, include: { question: { include: { examCycle: { include: { examination: true } } } }, mappings: { include: { syllabusTopic: true } }, reviews: { orderBy: { createdAt: 'desc' }, take: 1 } }, orderBy: { submittedAt: 'asc' }, take: 100 });
+  async queue(status: QuestionVersionStatus | undefined, actorId: string, role: AccountRole) {
+    return this.database.questionVersion.findMany({ where: { status: status ?? QuestionVersionStatus.SUBMITTED_FOR_REVIEW, ...(role === AccountRole.SME ? { reviews: { some: { reviewerId: actorId, decision: ReviewDecision.ASSIGNED } } } : {}) }, include: { question: { include: { examCycle: { include: { examination: true } } } }, mappings: { include: { syllabusTopic: true } }, reviews: { orderBy: { createdAt: 'desc' }, take: 1 } }, orderBy: { submittedAt: 'asc' }, take: 100 });
   }
 
   async assign(questionId: string, versionId: string, reviewerId: string, actorId: string) {

@@ -6,8 +6,8 @@ describe('distributed authentication rate limiting', () => {
   const originalRedisUrl = process.env.REDIS_URL;
 
   afterEach(() => {
-    process.env.NODE_ENV = originalNodeEnv;
-    process.env.REDIS_URL = originalRedisUrl;
+    if (originalNodeEnv === undefined) delete process.env.NODE_ENV; else process.env.NODE_ENV = originalNodeEnv;
+    if (originalRedisUrl === undefined) delete process.env.REDIS_URL; else process.env.REDIS_URL = originalRedisUrl;
   });
 
   it('fails closed when Redis is unavailable', async () => {
@@ -15,6 +15,13 @@ describe('distributed authentication rate limiting', () => {
     process.env.REDIS_URL = 'redis://unavailable.test';
     const service = new AuthService({} as never) as unknown as { checkRate: (action: string, key: string) => Promise<void>; redis: { incr: jest.Mock; expire: jest.Mock } };
     service.redis = { incr: jest.fn().mockRejectedValue(new Error('connection refused')), expire: jest.fn() };
+    await expect(service.checkRate('login', '127.0.0.1:test@example.test')).rejects.toBeInstanceOf(ServiceUnavailableException);
+  });
+
+  it('fails closed in production when REDIS_URL is missing', async () => {
+    process.env.NODE_ENV = 'production';
+    delete process.env.REDIS_URL;
+    const service = new AuthService({} as never) as unknown as { checkRate: (action: string, key: string) => Promise<void> };
     await expect(service.checkRate('login', '127.0.0.1:test@example.test')).rejects.toBeInstanceOf(ServiceUnavailableException);
   });
 
