@@ -61,6 +61,11 @@ test('student-facing catalogue and protected pattern writes are reachable safely
   expect(result).toBe(401);
 });
 
+test('faculty workspace requires an authorized session', async ({ page }) => {
+  await page.goto('/workspace');
+  await expect(page.getByRole('link', { name: 'Go to sign in' })).toBeVisible();
+});
+
 test('administrator can manage a research-only catalogue and pattern lifecycle', async ({ browser }) => {
   const suffix = Date.now().toString(36).toUpperCase();
   const password = 'CorrectHorseBattery1';

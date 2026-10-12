@@ -27,6 +27,92 @@ enum PatternStatus {
   REJECTED
 }
 
+enum SyllabusStatus {
+  DRAFT
+  SUBMITTED_FOR_REVIEW
+  SME_REVIEWED
+  APPROVED
+  PUBLISHED
+  SUPERSEDED
+  REJECTED
+}
+
+enum QuestionType {
+  SINGLE_CHOICE
+  MULTIPLE_CHOICE
+  ASSERTION_REASON
+  MATCHING
+  ORDERING
+  READING_COMPREHENSION
+  DATA_INTERPRETATION
+  MATHEMATICAL
+}
+
+enum QuestionVersionStatus {
+  DRAFT
+  SUBMITTED_FOR_REVIEW
+  SME_REVIEWED
+  APPROVED
+  PUBLISHED
+  SUPERSEDED
+  REJECTED
+}
+
+enum TranslationStatus {
+  DRAFT
+  IN_REVIEW
+  APPROVED
+  REJECTED
+}
+
+enum ReviewDecision {
+  ASSIGNED
+  APPROVED
+  REJECTED
+  RETURNED
+}
+
+enum PublicationStatus {
+  ACTIVE
+  SUPERSEDED
+  WITHDRAWN
+}
+
+enum RightsStatus {
+  OWNED
+  LICENSED
+  PERMISSION_GRANTED
+  PUBLIC_DOMAIN
+  FAIR_USE_JUSTIFIED
+  RESTRICTED
+  UNKNOWN
+}
+
+enum ChallengeCategory {
+  INCORRECT_ANSWER_KEY
+  AMBIGUOUS_QUESTION
+  INCORRECT_EXPLANATION
+  TRANSLATION_ERROR
+  OUTDATED_FACTS
+  INCORRECT_SYLLABUS_MAPPING
+  COPYRIGHT_PROVENANCE
+  TECHNICAL_FORMATTING
+}
+
+enum ChallengeStatus {
+  OPEN
+  IN_REVIEW
+  RESOLVED
+  REJECTED
+  DUPLICATE
+  QUARANTINED
+}
+
+enum QuestionGroupType {
+  READING_COMPREHENSION
+  DATA_INTERPRETATION
+}
+
 enum AccountRole {
   STUDENT
   SME
@@ -50,6 +136,26 @@ enum AuditEventType {
   PATTERN_REJECTED
   PATTERN_PUBLISHED
   PATTERN_SUPERSEDED
+  SYLLABUS_VERSION_CREATED
+  SYLLABUS_TAXONOMY_UPDATED
+  QUESTION_DRAFT_CREATED
+  QUESTION_REVISION_CREATED
+  QUESTION_DRAFT_UPDATED
+  QUESTION_OPTION_UPDATED
+  QUESTION_ANSWER_KEY_UPDATED
+  QUESTION_EXPLANATION_UPDATED
+  QUESTION_SYLLABUS_MAPPED
+  QUESTION_PROVENANCE_UPDATED
+  QUESTION_SUBMITTED_FOR_REVIEW
+  QUESTION_REVIEW_ASSIGNED
+  QUESTION_REVIEWED
+  QUESTION_APPROVED
+  QUESTION_REJECTED
+  QUESTION_PUBLISHED
+  QUESTION_SUPERSEDED
+  QUESTION_CHALLENGED
+  QUESTION_CHALLENGE_RESOLVED
+  QUESTION_TRANSLATION_REVIEWED
 }
 
 enum JurisdictionType {
@@ -129,15 +235,295 @@ model ExaminationJurisdiction {
 }
 
 model ExamCycle {
-  id            String               @id @default(uuid()) @db.Uuid
-  examinationId String               @db.Uuid
-  examination   Examination          @relation(fields: [examinationId], references: [id], onDelete: Restrict)
-  code          String               @db.VarChar(60)
-  versions      ExamPatternVersion[]
-  subjects      ExamSubject[]
-  createdAt     DateTime             @default(now())
+  id               String               @id @default(uuid()) @db.Uuid
+  examinationId    String               @db.Uuid
+  examination      Examination          @relation(fields: [examinationId], references: [id], onDelete: Restrict)
+  code             String               @db.VarChar(60)
+  versions         ExamPatternVersion[]
+  subjects         ExamSubject[]
+  syllabusVersions SyllabusVersion[]
+  questions        Question[]
+  questionGroups   QuestionGroup[]
+  createdAt        DateTime             @default(now())
 
   @@unique([examinationId, code])
+}
+
+model Question {
+  id          String            @id @default(uuid()) @db.Uuid
+  examCycleId String            @db.Uuid
+  examCycle   ExamCycle         @relation(fields: [examCycleId], references: [id], onDelete: Restrict)
+  subjectCode String            @db.VarChar(80)
+  createdById String            @db.Uuid
+  createdBy   Account           @relation("QuestionAuthors", fields: [createdById], references: [id], onDelete: Restrict)
+  versions    QuestionVersion[]
+  auditEvents AuditEvent[]
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  @@index([examCycleId, subjectCode])
+}
+
+model QuestionVersion {
+  id           String                       @id @default(uuid()) @db.Uuid
+  questionId   String                       @db.Uuid
+  question     Question                     @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  version      Int
+  status       QuestionVersionStatus        @default(DRAFT)
+  type         QuestionType
+  languageCode String                       @default("en") @db.VarChar(20)
+  prompt       Json
+  groupId      String?                      @db.Uuid
+  group        QuestionGroup?               @relation(fields: [groupId], references: [id], onDelete: Restrict)
+  authoredById String                       @db.Uuid
+  authoredBy   Account                      @relation("QuestionRevisionAuthors", fields: [authoredById], references: [id], onDelete: Restrict)
+  options      QuestionOption[]
+  answerKeys   QuestionAnswerKeyVersion[]
+  explanations QuestionExplanationVersion[]
+  mappings     QuestionSyllabusMapping[]
+  translations QuestionTranslation[]
+  provenance   ContentProvenance[]
+  licences     ContentLicence[]
+  auditEvents  AuditEvent[]
+  reviews      QuestionReview[]
+  publication  QuestionPublication?
+  challenges   QuestionChallenge[]
+  submittedAt  DateTime?
+  approvedAt   DateTime?
+  publishedAt  DateTime?
+  createdAt    DateTime                     @default(now())
+  updatedAt    DateTime                     @updatedAt
+
+  @@unique([questionId, version])
+  @@index([status, type])
+  @@index([groupId])
+}
+
+model QuestionOption {
+  id                String          @id @default(uuid()) @db.Uuid
+  questionVersionId String          @db.Uuid
+  questionVersion   QuestionVersion @relation(fields: [questionVersionId], references: [id], onDelete: Cascade)
+  optionKey         String          @db.VarChar(32)
+  optionText        Json
+  sequence          Int
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  @@unique([questionVersionId, optionKey])
+  @@unique([questionVersionId, sequence])
+}
+
+model QuestionAnswerKeyVersion {
+  id                String          @id @default(uuid()) @db.Uuid
+  questionVersionId String          @db.Uuid
+  questionVersion   QuestionVersion @relation(fields: [questionVersionId], references: [id], onDelete: Cascade)
+  version           Int
+  correctAnswers    Json
+  exactMatch        Boolean         @default(false)
+  createdById       String          @db.Uuid
+  createdBy         Account         @relation("AnswerKeyAuthors", fields: [createdById], references: [id], onDelete: Restrict)
+  createdAt         DateTime        @default(now())
+
+  @@unique([questionVersionId, version])
+}
+
+model QuestionExplanationVersion {
+  id                String            @id @default(uuid()) @db.Uuid
+  questionVersionId String            @db.Uuid
+  questionVersion   QuestionVersion   @relation(fields: [questionVersionId], references: [id], onDelete: Cascade)
+  version           Int
+  languageCode      String            @default("en") @db.VarChar(20)
+  explanation       Json
+  createdById       String            @db.Uuid
+  createdBy         Account           @relation("ExplanationAuthors", fields: [createdById], references: [id], onDelete: Restrict)
+  rationales        OptionRationale[]
+  createdAt         DateTime          @default(now())
+
+  @@unique([questionVersionId, version, languageCode])
+}
+
+model OptionRationale {
+  id            String                     @id @default(uuid()) @db.Uuid
+  explanationId String                     @db.Uuid
+  explanation   QuestionExplanationVersion @relation(fields: [explanationId], references: [id], onDelete: Cascade)
+  optionKey     String                     @db.VarChar(32)
+  rationale     Json
+
+  @@unique([explanationId, optionKey])
+}
+
+model QuestionGroup {
+  id          String            @id @default(uuid()) @db.Uuid
+  examCycleId String            @db.Uuid
+  examCycle   ExamCycle         @relation(fields: [examCycleId], references: [id], onDelete: Restrict)
+  subjectCode String            @db.VarChar(80)
+  type        QuestionGroupType
+  title       String            @db.VarChar(240)
+  stimulus    Json
+  questions   QuestionVersion[]
+  createdById String            @db.Uuid
+  createdBy   Account           @relation("QuestionGroupAuthors", fields: [createdById], references: [id], onDelete: Restrict)
+  createdAt   DateTime          @default(now())
+}
+
+model QuestionSyllabusMapping {
+  id                String          @id @default(uuid()) @db.Uuid
+  questionVersionId String          @db.Uuid
+  questionVersion   QuestionVersion @relation(fields: [questionVersionId], references: [id], onDelete: Cascade)
+  syllabusTopicId   String          @db.Uuid
+  syllabusTopic     SyllabusTopic   @relation(fields: [syllabusTopicId], references: [id], onDelete: Restrict)
+  createdAt         DateTime        @default(now())
+
+  @@unique([questionVersionId, syllabusTopicId])
+}
+
+model QuestionTranslation {
+  id                String            @id @default(uuid()) @db.Uuid
+  questionVersionId String            @db.Uuid
+  questionVersion   QuestionVersion   @relation(fields: [questionVersionId], references: [id], onDelete: Cascade)
+  languageCode      String            @db.VarChar(20)
+  prompt            Json
+  status            TranslationStatus @default(DRAFT)
+  createdById       String            @db.Uuid
+  createdBy         Account           @relation("TranslationAuthors", fields: [createdById], references: [id], onDelete: Restrict)
+  reviewedById      String?           @db.Uuid
+  reviewedBy        Account?          @relation("TranslationReviewers", fields: [reviewedById], references: [id], onDelete: Restrict)
+  reviewedAt        DateTime?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  @@unique([questionVersionId, languageCode])
+}
+
+model ContentProvenance {
+  id                String          @id @default(uuid()) @db.Uuid
+  questionVersionId String          @db.Uuid
+  questionVersion   QuestionVersion @relation(fields: [questionVersionId], references: [id], onDelete: Cascade)
+  sourceTitle       String          @db.VarChar(300)
+  sourceUrl         String?         @db.Text
+  sourceReference   String?         @db.Text
+  sourceHash        String?         @db.VarChar(128)
+  sourceType        String          @default("RESEARCH_REFERENCE") @db.VarChar(80)
+  rightsStatus      RightsStatus    @default(UNKNOWN)
+  rightsNote        String?         @db.Text
+  createdById       String          @db.Uuid
+  createdBy         Account         @relation("ProvenanceAuthors", fields: [createdById], references: [id], onDelete: Restrict)
+  createdAt         DateTime        @default(now())
+}
+
+model ContentLicence {
+  id                String          @id @default(uuid()) @db.Uuid
+  questionVersionId String          @db.Uuid
+  questionVersion   QuestionVersion @relation(fields: [questionVersionId], references: [id], onDelete: Cascade)
+  licenceName       String          @db.VarChar(200)
+  licenceReference  String?         @db.Text
+  restrictions      String?         @db.Text
+  createdById       String          @db.Uuid
+  createdBy         Account         @relation("LicenceAuthors", fields: [createdById], references: [id], onDelete: Restrict)
+  createdAt         DateTime        @default(now())
+}
+
+model QuestionReview {
+  id                String          @id @default(uuid()) @db.Uuid
+  questionVersionId String          @db.Uuid
+  questionVersion   QuestionVersion @relation(fields: [questionVersionId], references: [id], onDelete: Cascade)
+  reviewerId        String          @db.Uuid
+  reviewer          Account         @relation("QuestionReviewers", fields: [reviewerId], references: [id], onDelete: Restrict)
+  decision          ReviewDecision
+  notes             String          @db.Text
+  evidence          Json?
+  createdAt         DateTime        @default(now())
+
+  @@index([questionVersionId, createdAt])
+  @@index([reviewerId, createdAt])
+}
+
+model QuestionPublication {
+  id                String            @id @default(uuid()) @db.Uuid
+  questionVersionId String            @unique @db.Uuid
+  questionVersion   QuestionVersion   @relation(fields: [questionVersionId], references: [id], onDelete: Restrict)
+  publishedById     String            @db.Uuid
+  publishedBy       Account           @relation("QuestionPublishers", fields: [publishedById], references: [id], onDelete: Restrict)
+  status            PublicationStatus @default(ACTIVE)
+  contentHash       String            @db.VarChar(128)
+  snapshot          Json
+  publishedAt       DateTime          @default(now())
+  supersededAt      DateTime?
+  withdrawnAt       DateTime?
+
+  @@index([status, publishedAt])
+}
+
+model QuestionChallenge {
+  id                String            @id @default(uuid()) @db.Uuid
+  questionVersionId String            @db.Uuid
+  questionVersion   QuestionVersion   @relation(fields: [questionVersionId], references: [id], onDelete: Restrict)
+  reporterId        String            @db.Uuid
+  reporter          Account           @relation("ChallengeReporters", fields: [reporterId], references: [id], onDelete: Restrict)
+  category          ChallengeCategory
+  description       String            @db.Text
+  status            ChallengeStatus   @default(OPEN)
+  dedupeHash        String            @unique @db.Char(64)
+  resolutionNotes   String?           @db.Text
+  resolvedById      String?           @db.Uuid
+  resolvedBy        Account?          @relation("ChallengeResolvers", fields: [resolvedById], references: [id], onDelete: Restrict)
+  createdAt         DateTime          @default(now())
+  resolvedAt        DateTime?
+
+  @@index([questionVersionId, status])
+  @@index([reporterId, createdAt])
+}
+
+model SyllabusVersion {
+  id          String         @id @default(uuid()) @db.Uuid
+  examCycleId String         @db.Uuid
+  examCycle   ExamCycle      @relation(fields: [examCycleId], references: [id], onDelete: Restrict)
+  subjectCode String         @db.VarChar(80)
+  version     Int
+  title       String         @db.VarChar(240)
+  status      SyllabusStatus @default(DRAFT)
+  createdById String         @db.Uuid
+  createdBy   Account        @relation("SyllabusAuthors", fields: [createdById], references: [id], onDelete: Restrict)
+  units       SubjectUnit[]
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  @@unique([examCycleId, subjectCode, version])
+  @@index([examCycleId, subjectCode, status])
+}
+
+model SubjectUnit {
+  id                String          @id @default(uuid()) @db.Uuid
+  syllabusVersionId String          @db.Uuid
+  syllabusVersion   SyllabusVersion @relation(fields: [syllabusVersionId], references: [id], onDelete: Cascade)
+  code              String          @db.VarChar(80)
+  title             String          @db.VarChar(240)
+  sequence          Int
+  topics            SyllabusTopic[]
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  @@unique([syllabusVersionId, code])
+  @@index([syllabusVersionId, sequence])
+}
+
+model SyllabusTopic {
+  id               String                    @id @default(uuid()) @db.Uuid
+  subjectUnitId    String                    @db.Uuid
+  subjectUnit      SubjectUnit               @relation(fields: [subjectUnitId], references: [id], onDelete: Cascade)
+  parentId         String?                   @db.Uuid
+  parent           SyllabusTopic?            @relation("SyllabusTopicHierarchy", fields: [parentId], references: [id], onDelete: Cascade)
+  children         SyllabusTopic[]           @relation("SyllabusTopicHierarchy")
+  questionMappings QuestionSyllabusMapping[]
+  code             String                    @db.VarChar(100)
+  title            String                    @db.VarChar(300)
+  sequence         Int
+  createdAt        DateTime                  @default(now())
+  updatedAt        DateTime                  @updatedAt
+
+  @@unique([subjectUnitId, code])
+  @@index([subjectUnitId, sequence])
+  @@index([parentId])
 }
 
 model ExamPatternVersion {
@@ -307,19 +693,33 @@ model PatternApproval {
 }
 
 model Account {
-  id                       String            @id @default(uuid()) @db.Uuid
-  email                    String            @unique @db.VarChar(320)
-  passwordHash             String            @db.VarChar(255)
-  role                     AccountRole       @default(STUDENT)
+  id                       String                       @id @default(uuid()) @db.Uuid
+  email                    String                       @unique @db.VarChar(320)
+  passwordHash             String                       @db.VarChar(255)
+  role                     AccountRole                  @default(STUDENT)
   emailVerifiedAt          DateTime?
-  createdAt                DateTime          @default(now())
-  updatedAt                DateTime          @updatedAt
+  createdAt                DateTime                     @default(now())
+  updatedAt                DateTime                     @updatedAt
   sessions                 Session[]
   auditEvents              AuditEvent[]
   submittedPatternEvidence PatternEvidence[]
   patternApprovals         PatternApproval[]
   emailVerificationTokens  EmailVerificationToken[]
   passwordResetTokens      PasswordResetToken[]
+  authoredSyllabi          SyllabusVersion[]            @relation("SyllabusAuthors")
+  authoredQuestions        Question[]                   @relation("QuestionAuthors")
+  authoredQuestionVersions QuestionVersion[]            @relation("QuestionRevisionAuthors")
+  authoredAnswerKeys       QuestionAnswerKeyVersion[]   @relation("AnswerKeyAuthors")
+  authoredExplanations     QuestionExplanationVersion[] @relation("ExplanationAuthors")
+  authoredQuestionGroups   QuestionGroup[]              @relation("QuestionGroupAuthors")
+  authoredTranslations     QuestionTranslation[]        @relation("TranslationAuthors")
+  authoredProvenance       ContentProvenance[]          @relation("ProvenanceAuthors")
+  authoredLicences         ContentLicence[]             @relation("LicenceAuthors")
+  questionReviews          QuestionReview[]             @relation("QuestionReviewers")
+  publishedQuestions       QuestionPublication[]        @relation("QuestionPublishers")
+  reviewedTranslations     QuestionTranslation[]        @relation("TranslationReviewers")
+  challengeReports         QuestionChallenge[]          @relation("ChallengeReporters")
+  challengeResolutions     QuestionChallenge[]          @relation("ChallengeResolvers")
 }
 
 model Session {
@@ -363,17 +763,23 @@ model PasswordResetToken {
 }
 
 model AuditEvent {
-  id               String              @id @default(uuid()) @db.Uuid
-  type             AuditEventType
-  accountId        String?             @db.Uuid
-  account          Account?            @relation(fields: [accountId], references: [id], onDelete: SetNull)
-  patternVersionId String?             @db.Uuid
-  patternVersion   ExamPatternVersion? @relation(fields: [patternVersionId], references: [id], onDelete: SetNull)
-  ipAddress        String?             @db.VarChar(64)
-  metadata         Json?
-  createdAt        DateTime            @default(now())
+  id                String              @id @default(uuid()) @db.Uuid
+  type              AuditEventType
+  accountId         String?             @db.Uuid
+  account           Account?            @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  patternVersionId  String?             @db.Uuid
+  patternVersion    ExamPatternVersion? @relation(fields: [patternVersionId], references: [id], onDelete: SetNull)
+  questionId        String?             @db.Uuid
+  question          Question?           @relation(fields: [questionId], references: [id], onDelete: SetNull)
+  questionVersionId String?             @db.Uuid
+  questionVersion   QuestionVersion?    @relation(fields: [questionVersionId], references: [id], onDelete: SetNull)
+  ipAddress         String?             @db.VarChar(64)
+  metadata          Json?
+  createdAt         DateTime            @default(now())
 
   @@index([accountId, createdAt])
   @@index([type, createdAt])
   @@index([patternVersionId, createdAt])
+  @@index([questionId, createdAt])
+  @@index([questionVersionId, createdAt])
 }

@@ -6,9 +6,11 @@ import { HealthService } from './health/health.service';
 import { AuthModule } from './auth/auth.module';
 import { CatalogueModule } from './catalogue/catalogue.module';
 import { PatternModule } from './patterns/pattern.module';
+import { SyllabusModule } from './syllabus/syllabus.module';
+import { QuestionModule } from './questions/question.module';
 
 @Module({
-  imports: [ConfigModule.forRoot({ isGlobal: true, envFilePath: ['.env'] }), DatabaseModule, AuthModule, CatalogueModule, PatternModule],
+  imports: [ConfigModule.forRoot({ isGlobal: true, envFilePath: ['.env'] }), DatabaseModule, AuthModule, CatalogueModule, PatternModule, SyllabusModule, QuestionModule],
   controllers: [HealthController],
   providers: [HealthService],
 })
