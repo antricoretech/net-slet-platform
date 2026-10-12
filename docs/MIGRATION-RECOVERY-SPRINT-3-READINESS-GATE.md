@@ -4,7 +4,7 @@ Date: 2026-10-12
 
 ## Decision
 
-**Migration recovery: NOT APPROVED FOR ACTIVE-DATABASE CHANGE.** The defect is reproducible and the current database is healthy, but no recovery approach has yet passed both empty-database and preserved-database compatibility validation.
+**Migration recovery: NOT APPROVED FOR ACTIVE-DATABASE CHANGE.** Stage A has produced verified backup/restore and direct PostgreSQL baseline evidence. The dump-derived candidate still fails Prisma 7.10.0 native deployment with `P1014`, and no preserved-database compatibility rehearsal has been authorized.
 
 **Sprint 3: CONDITIONAL GO for architecture and test planning only; NO-GO for database/application implementation.** No Sprint 3 entities, migrations or modules were added.
 
