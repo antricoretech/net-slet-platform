@@ -29,3 +29,9 @@ test('PrepPilot dashboard preview is unavailable unless explicitly enabled', asy
   await expect(page.getByRole('heading', { name: 'PrepPilot preview unavailable' })).toBeVisible();
   await expect(page.getByText('development-only dashboard preview is disabled')).toBeVisible();
 });
+
+test('ExamDNA readiness preview is unavailable unless explicitly enabled', async ({ page }) => {
+  await page.goto('/workspace/examination-readiness/preview');
+  await expect(page.getByRole('heading', { name: 'Examination readiness preview unavailable' })).toBeVisible();
+  await expect(page.getByText('development-only administrative preview is disabled')).toBeVisible();
+});

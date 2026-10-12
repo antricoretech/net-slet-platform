@@ -38,3 +38,7 @@ L0.D.0 adds provisional learner-profile, target, availability, next-best-action,
 ## L0.E.0 integration and QA increment
 
 L0.E.0 audits and hardens the cross-module learning chain, adds invariant/traceability tests, verifies preview security boundaries, and corrects the consent-withdrawal fallback so non-personalized coverage remains possible without evidence-derived profiling. It does not activate production workflows, persistence or spaced revision. See the L0.E documents and `LEARNING-L0E-IMPLEMENTATION-REPORT.md`.
+
+## Content Track C0.A — ExamDNA
+
+C0.A adds exact-cycle source evidence, official pattern integrity, six-family compatibility, question inventory readiness, strict mock publication gates and a server-gated administrative readiness preview. It remains research-only until authorized evidence and review approvals exist. No active database or production publication is enabled.
