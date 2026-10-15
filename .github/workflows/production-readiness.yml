@@ -37,6 +37,7 @@ jobs:
       APP_ENV: production
       NODE_ENV: test
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/netslet_release_ci?schema=public
+      STAGE_A_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/netslet_release_ci?schema=public
       REDIS_URL: redis://localhost:6379
       WEB_ORIGINS: ${{ vars.PRODUCTION_WEB_ORIGIN }}
       NEXT_PUBLIC_API_BASE_URL: ${{ vars.PRODUCTION_API_BASE_URL }}
