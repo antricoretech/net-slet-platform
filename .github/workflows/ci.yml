@@ -31,8 +31,8 @@ jobs:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/netslet_stageb_ci?schema=public
       STAGE_A_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/netslet_stageb_ci?schema=public
       REDIS_URL: redis://localhost:6379
-      WEB_ORIGIN: http://localhost:3000
-      WEB_ORIGINS: http://localhost:3000
+      WEB_ORIGIN: http://127.0.0.1:3000
+      WEB_ORIGINS: http://localhost:3000,http://127.0.0.1:3000
       STAGE_B_CI: '1'
       STAGE_B_CBT_E2E: '1'
     steps:
