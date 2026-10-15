@@ -66,5 +66,9 @@ jobs:
         run: pnpm test:integration
       - name: Install Playwright browser
         run: pnpm exec playwright install --with-deps chromium
-      - name: Browser journeys
-        run: pnpm test:e2e
+      - name: Browser journeys (Stage B, Sprint 1 and preview safety)
+        run: pnpm test:e2e -- tests/e2e/sprint1.spec.ts tests/e2e/sprint3b-preview.spec.ts tests/e2e/stage-b-cbt.spec.ts
+      - name: Browser journeys (Sprint 2 acceptance)
+        env:
+          STAGE_B_CBT_E2E: ''
+        run: pnpm test:e2e -- tests/e2e/sprint2-acceptance.spec.ts

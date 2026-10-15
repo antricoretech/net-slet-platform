@@ -9,6 +9,7 @@ export default defineConfig({
   outputDir: 'test-results/stage-b-e2e-runs',
   timeout: 30_000,
   fullyParallel: false,
+  workers: process.env.CI === 'true' ? 1 : undefined,
   reporter: [['list']],
   globalSetup: process.env.STAGE_B_CBT_E2E === '1' ? './tests/e2e/stage-b-cbt.global.ts' : undefined,
   globalTeardown: process.env.STAGE_B_CBT_E2E === '1' ? './tests/e2e/stage-b-cbt.teardown.ts' : undefined,
