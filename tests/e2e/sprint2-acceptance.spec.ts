@@ -22,10 +22,10 @@ function isolatedDatabaseUrl(): string {
 }
 
 async function api(page: Page, pathName: string, method = 'GET', body?: unknown): Promise<{ status: number; body: any }> {
-  return page.evaluate(async ({ pathName, method, body }) => {
-    const response = await fetch(`${apiBase}${pathName}`, { method, credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
+  return page.evaluate(async ({ base, pathName, method, body }) => {
+    const response = await fetch(`${base}${pathName}`, { method, credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
     return { status: response.status, body: await response.json().catch(() => ({})) };
-  }, { pathName, method, body });
+  }, { base: apiBase, pathName, method, body });
 }
 
 async function signIn(browser: Browser, email: string, password: string): Promise<Page> {
