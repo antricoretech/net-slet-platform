@@ -1,0 +1,61 @@
+name: Staging readiness
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [production-readiness/**]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    environment: staging
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: netslet_staging_ci
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres -d netslet_staging_ci"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+      redis:
+        image: redis:7.4-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+    env:
+      # This is an isolated CI service, not a deployed staging runtime. The release
+      # contract is exercised by runtime-config tests; no external endpoint is invented here.
+      APP_ENV: test
+      NODE_ENV: test
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/netslet_staging_ci?schema=public
+      REDIS_URL: redis://localhost:6379
+      WEB_ORIGINS: http://127.0.0.1:3000
+      NEXT_PUBLIC_API_BASE_URL: http://127.0.0.1:4000/api/v1
+      STAGE_B_CI: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 10.19.0 }
+      - uses: actions/setup-node@v4
+        with: { node-version: '24', cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm security:secrets
+      - run: pnpm security:audit
+      - run: pnpm db:generate
+      - run: pnpm --filter @net-slet/api exec prisma migrate deploy --config ../../recovery/stage-a/prisma.config.ts
+      - run: pnpm verify:structure
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm lint
+      - run: pnpm build
+      - run: pnpm test:integration
+      - name: Build reproducible non-root images
+        run: |
+          docker build --file deploy/docker/api.Dockerfile --tag net-slet-api:${GITHUB_SHA} .
+          docker build --file deploy/docker/web.Dockerfile --build-arg APP_ENV=test --build-arg NEXT_PUBLIC_API_BASE_URL="${NEXT_PUBLIC_API_BASE_URL}" --tag net-slet-web:${GITHUB_SHA} .
+          test "$(docker image inspect --format '{{.Config.User}}' net-slet-api:${GITHUB_SHA})" = 'node'
+          test "$(docker image inspect --format '{{.Config.User}}' net-slet-web:${GITHUB_SHA})" = 'node'

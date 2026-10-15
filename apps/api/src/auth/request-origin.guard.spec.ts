@@ -7,8 +7,12 @@ function context(method: string, origin?: string): ExecutionContext {
 
 describe('RequestOriginGuard', () => {
   const originalOrigins = process.env.WEB_ORIGINS;
+  const originalNodeEnv = process.env.NODE_ENV;
 
-  afterEach(() => { process.env.WEB_ORIGINS = originalOrigins; });
+  afterEach(() => {
+    process.env.WEB_ORIGINS = originalOrigins;
+    if (originalNodeEnv === undefined) delete process.env.NODE_ENV; else process.env.NODE_ENV = originalNodeEnv;
+  });
 
   it('allows configured browser origins for state-changing requests', () => {
     process.env.WEB_ORIGINS = 'http://localhost:3000';
@@ -24,5 +28,11 @@ describe('RequestOriginGuard', () => {
     process.env.WEB_ORIGINS = 'http://localhost:3000';
     expect(new RequestOriginGuard().canActivate(context('GET', 'https://evil.example'))).toBe(true);
     expect(new RequestOriginGuard().canActivate(context('POST'))).toBe(true);
+  });
+
+  it('requires an origin for cookie-authenticated state changes in production', () => {
+    process.env.NODE_ENV = 'production';
+    process.env.WEB_ORIGINS = 'https://app.example.test';
+    expect(() => new RequestOriginGuard().canActivate(context('POST'))).toThrow(ForbiddenException);
   });
 });

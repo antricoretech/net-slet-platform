@@ -1,0 +1,37 @@
+name: net-slet-staging
+
+services:
+  api:
+    image: ghcr.io/antricoretech/net-slet-api:${IMAGE_TAG:?Set IMAGE_TAG to an approved immutable tag}
+    environment:
+      APP_ENV: staging
+      NODE_ENV: production
+      DATABASE_URL: ${DATABASE_URL:?Set a private staging PostgreSQL URL}
+      REDIS_URL: ${REDIS_URL:?Set a private staging Redis URL}
+      WEB_ORIGINS: ${WEB_ORIGINS:?Set the HTTPS staging web origin}
+      NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:?Set the HTTPS staging API URL}
+      SESSION_SECRET: ${SESSION_SECRET:?Set a staging-only secret}
+      SECURE_COOKIES: 'true'
+      TRUSTED_PROXY: ${TRUSTED_PROXY:?Set the known ingress hop count}
+      EMAIL_VERIFICATION_PROVIDER: ${EMAIL_VERIFICATION_PROVIDER:?Set an approved non-console provider}
+      EMAIL_PROVIDER_URL: ${EMAIL_PROVIDER_URL:?Set the provider URL}
+      EMAIL_PROVIDER_API_KEY: ${EMAIL_PROVIDER_API_KEY:?Inject from the staging secret store}
+      EMAIL_FROM: ${EMAIL_FROM:?Set an approved sender}
+    restart: unless-stopped
+    read_only: true
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    ports: ['127.0.0.1:4400:4000']
+
+  web:
+    image: ghcr.io/antricoretech/net-slet-web:${IMAGE_TAG:?Set IMAGE_TAG to an approved immutable tag}
+    environment:
+      NODE_ENV: production
+      HOSTNAME: 0.0.0.0
+      PORT: 3000
+    depends_on: [api]
+    restart: unless-stopped
+    read_only: true
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    ports: ['127.0.0.1:4300:3000']

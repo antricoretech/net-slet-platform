@@ -1,0 +1,75 @@
+name: Production release readiness
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: Immutable image tag or commit SHA to review
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  release-readiness:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production-release-approval
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: netslet_release_ci
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres -d netslet_release_ci"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+      redis:
+        image: redis:7.4-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+    env:
+      APP_ENV: production
+      NODE_ENV: test
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/netslet_release_ci?schema=public
+      REDIS_URL: redis://localhost:6379
+      WEB_ORIGINS: ${{ vars.PRODUCTION_WEB_ORIGIN }}
+      NEXT_PUBLIC_API_BASE_URL: ${{ vars.PRODUCTION_API_BASE_URL }}
+      STAGE_B_CI: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: ${{ github.sha }} }
+      - uses: pnpm/action-setup@v4
+        with: { version: 10.19.0 }
+      - uses: actions/setup-node@v4
+        with: { node-version: '24', cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm security:secrets
+      - run: pnpm security:audit
+      - run: pnpm db:generate
+      - run: pnpm --filter @net-slet/api exec prisma migrate deploy --config ../../recovery/stage-a/prisma.config.ts
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm lint
+      - run: pnpm build
+      - run: pnpm test:integration
+      - name: Build reproducible non-root images
+        run: |
+          docker build --file deploy/docker/api.Dockerfile --tag net-slet-api:${GITHUB_SHA} .
+          docker build --file deploy/docker/web.Dockerfile --build-arg APP_ENV=production --build-arg NEXT_PUBLIC_API_BASE_URL="${NEXT_PUBLIC_API_BASE_URL}" --tag net-slet-web:${GITHUB_SHA} .
+          test "$(docker image inspect --format '{{.Config.User}}' net-slet-api:${GITHUB_SHA})" = 'node'
+          test "$(docker image inspect --format '{{.Config.User}}' net-slet-web:${GITHUB_SHA})" = 'node'
+      - name: Verify release input is immutable
+        env:
+          IMAGE_TAG: ${{ inputs.image_tag }}
+        shell: bash
+        run: test -n "$IMAGE_TAG" && test "$IMAGE_TAG" = "${GITHUB_SHA}" || { echo 'Use the reviewed commit SHA as the image tag.'; exit 1; }
+      - name: Release handoff
+        run: |
+          echo 'Readiness checks passed for the approved commit.'
+          echo 'Deployment, active migration reconciliation and backup operations remain separate authorized steps.'

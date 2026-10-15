@@ -8,6 +8,7 @@ export class RequestOriginGuard implements CanActivate {
     const request = context.switchToHttp().getRequest<{ method?: string; headers?: Record<string, string | string[] | undefined> }>();
     if (SAFE_METHODS.has(request.method?.toUpperCase() ?? '')) return true;
     const origin = this.header(request.headers?.origin);
+    if (!origin && process.env.NODE_ENV === 'production') throw new ForbiddenException('Request origin is required');
     if (!origin) return true;
     const configured = (process.env.WEB_ORIGINS ?? process.env.WEB_ORIGIN ?? '').split(',').map((item) => item.trim()).filter(Boolean);
     if (configured.includes(origin)) return true;
