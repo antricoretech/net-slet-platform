@@ -1,0 +1,2 @@
+export type PaletteState = 'NOT_VISITED' | 'VISITED_UNANSWERED' | 'ANSWERED' | 'MARKED_REVIEW_UNANSWERED' | 'MARKED_REVIEW_ANSWERED';
+export function calculatePaletteState(input: { readonly visited: boolean; readonly hasAnswer: boolean; readonly markedForReview: boolean }): PaletteState { if (input.markedForReview) return input.hasAnswer ? 'MARKED_REVIEW_ANSWERED' : 'MARKED_REVIEW_UNANSWERED'; if (input.hasAnswer) return 'ANSWERED'; return input.visited ? 'VISITED_UNANSWERED' : 'NOT_VISITED'; }

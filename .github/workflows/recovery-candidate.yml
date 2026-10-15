@@ -1,0 +1,65 @@
+name: Recovery candidate validation
+on:
+  workflow_dispatch:
+  push:
+    branches: ['migration-recovery/**']
+  pull_request:
+    branches: ['migration-recovery/**']
+jobs:
+  candidate:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env: { POSTGRES_USER: postgres, POSTGRES_PASSWORD: postgres, POSTGRES_DB: postgres }
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+      redis:
+        image: redis:7.4-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/stage_a_ci_candidate?schema=public
+      STAGE_A_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/stage_a_ci_candidate?schema=public
+      STAGE_A_REHEARSAL: '1'
+      STAGE_A_REHEARSAL_PORT: '5432'
+      REDIS_URL: redis://localhost:6379
+      WEB_ORIGIN: http://localhost:3000
+      WEB_ORIGINS: http://localhost:3000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 10.19.0 }
+      - uses: actions/setup-node@v4
+        with: { node-version: '24', cache: pnpm }
+      - name: Install reproducibly
+        run: pnpm install --frozen-lockfile
+      - name: Verify reviewed baseline checksum
+        shell: bash
+        run: test "$(sha256sum recovery/stage-a/prisma/migrations/20261012000000_stage_a_consolidated_baseline/migration.sql | cut -d' ' -f1)" = '1c00968dc3690d35dd0507e8c24625aa093a3483b0b3ecc79efd9553dfcf0e34'
+      - name: Provision empty candidate database
+        run: PGPASSWORD=postgres psql -h localhost -U postgres -d postgres -c 'CREATE DATABASE stage_a_ci_candidate'
+      - name: Generate Prisma client
+        run: pnpm db:generate
+      - name: Apply consolidated baseline
+        run: pnpm --filter @net-slet/api exec prisma migrate deploy --config ../../recovery/stage-a/prisma.config.ts
+      - name: Verify schema objects and Prisma status
+        run: pnpm exec node scripts/verify-recovery-schema.mjs && pnpm --filter @net-slet/api exec prisma migrate status --config ../../recovery/stage-a/prisma.config.ts
+      - name: Unit and integration tests
+        run: pnpm test && pnpm test:integration
+      - name: Lint and production build
+        run: pnpm lint && pnpm build
+      - name: Install Playwright browser
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Authenticated browser journeys
+        run: pnpm test:e2e
+      - name: Machine-readable summary
+        if: always()
+        run: node -e "require('fs').mkdirSync('artifacts',{recursive:true}); require('fs').writeFileSync('artifacts/recovery-candidate-summary.json', JSON.stringify({track:'recovery-candidate', baselineSha256:'1c00968dc3690d35dd0507e8c24625aa093a3483b0b3ecc79efd9553dfcf0e34', sha:process.env.GITHUB_SHA, status:'evidence-captured'}, null, 2))"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: recovery-candidate-summary, path: artifacts/recovery-candidate-summary.json }

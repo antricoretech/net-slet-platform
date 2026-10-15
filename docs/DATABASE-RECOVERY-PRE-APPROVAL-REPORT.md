@@ -4,7 +4,7 @@ Date: 2026-10-12
 
 ## Recommendation
 
-**NOT READY FOR APPROVAL.** The backup and restoration prerequisites are now evidenced, but clean migration replay still fails and no approved recovery branch or preserved production-like copy exists. The active database and migration history were not changed.
+**NOT READY FOR STAGE B APPROVAL.** Stage A was executed on branch `migration-recovery/stage-a-20261012`. Backup/restore and direct PostgreSQL baseline evidence now exist, but Prisma 7.10.0 native baseline deployment still returns `P1014` for the dump-derived candidate and no preserved production-like copy exists. The active database and migration history were not changed.
 
 ## A. Repository preservation assessment
 
@@ -37,6 +37,8 @@ Backup:
 
 The archive was restored into isolated database `netslet_preapproval_restore_20261012`. Source and restore both reported 38 tables, 99 indexes, 96 constraints, 6 functions, 18 non-internal triggers and 15 Prisma migration rows. `pg_stat_user_tables` representative estimates matched: Account 19, AuditEvent 46, Jurisdiction 8, Session 31, and zero rows in the currently empty question/publication/challenge tables. Index definitions and constraint definitions had zero comparison differences. Trigger and function definitions had zero comparison differences. The isolated database and temporary container archive were removed afterward; the active database still reports 15 migration rows.
 
+The external Stage A candidate is retained at `C:\Users\Antricore\AppData\Local\NET-SLET-recovery\stage-a-20261012`. It excludes `_prisma_migrations` and removes PostgreSQL 17 `\\restrict` directives. Direct `psql` application succeeded on a fresh disposable database and an additive table/index probe succeeded. Prisma 7.10.0 `migrate deploy --config` recognized the candidate but returned `P1014` referring to the Prisma metadata table; this candidate is not accepted as a Prisma baseline until corrected.
+
 ## D. Database object inventory
 
 The active public schema contains 38 tables, including Account, Session, AuditEvent, catalogue/pattern tables, syllabus tables, question/revision/answer/explanation/provenance/licence tables, review/publication/challenge tables, token tables, and `_prisma_migrations`.
@@ -51,7 +53,7 @@ The exact failure remains the two token-table `ALTER TABLE` statements in `20261
 
 ## F. Proposed consolidated baseline
 
-Option A remains preferred, but only on an approved recovery branch: derive a schema-only baseline from the known-good database, explicitly preserve enums, functions, triggers, indexes, constraints and data transformations, archive the 15 existing migrations, and document the old-to-new history mapping. Validate both empty installation and restoration of the custom-format backup before any active reconciliation.
+Option A remains preferred, but only on an approved recovery branch: derive a schema-only baseline from the known-good database, explicitly preserve enums, functions, triggers, indexes, constraints and data transformations, archive the 15 existing migrations, and document the old-to-new history mapping. The direct SQL candidate produced 37 application tables, 98 application indexes, 95 application constraints, 6 functions and 18 triggers, matching the known-good application schema; the three-object difference is Prisma metadata. Prisma-native baseline deployment remains unverified because of the P1014 result.
 
 Option B, history reconciliation, is not currently approved because it has not been proven safe for fresh installs and already-populated databases. Option C, defer remediation while keeping the active database unchanged, is the current safe state.
 
@@ -68,7 +70,7 @@ Completed:
 Not verified:
 
 - compatibility against a separately preserved production-like database copy;
-- clean installation using a replacement baseline;
+- Prisma-native clean installation using a replacement baseline;
 - future additive migration after a replacement baseline;
 - authenticated full Sprint 2E browser journeys and automated accessibility audit.
 
@@ -87,6 +89,7 @@ Before deployment, verify the custom-format backup checksum and restore test. If
 ## K. Outstanding blockers
 
 - **P0:** Clean migration replay remains broken.
+- **P0:** Candidate baseline requires correction before Prisma-native deployment can be accepted.
 - **P0:** No approved recovery branch or product-owner/database-owner authorization.
 - **P1:** No preserved production-like database copy has been authorized for compatibility testing.
 - **P1:** Full authenticated Sprint 2E browser/security matrix remains incomplete.
@@ -96,4 +99,4 @@ Before deployment, verify the custom-format backup checksum and restore test. If
 
 Product owner and database owner must explicitly approve: the baseline-vs-reconciliation decision; the recovery branch and commit set; backup retention and restore owner; maintenance window; credentials/access; treatment of the 15 historical migrations; custom SQL inventory; empty and restored-copy evidence; next-migration test; rollback owner; and production deployment gates.
 
-Until every item is approved and the replacement history passes isolated validation, the recommendation remains **NOT READY FOR APPROVAL**.
+Until every item is approved and the replacement history passes Prisma-native isolated validation, the recommendation remains **NOT READY FOR STAGE B APPROVAL**.

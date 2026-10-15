@@ -201,7 +201,8 @@ export class AuthService {
   }
 
   private async checkRate(action: string, key: string): Promise<void> {
-    if (process.env.NODE_ENV === 'production' && process.env.REDIS_URL) {
+    if (process.env.NODE_ENV === 'production') {
+      if (!process.env.REDIS_URL) throw new ServiceUnavailableException('Authentication protection is unavailable');
       try {
         if (!this.redis) this.redis = new Redis(process.env.REDIS_URL, { maxRetriesPerRequest: 1, retryStrategy: () => null, connectTimeout: 1500 });
         const redisKey = `netslet:auth-rate:${action}:${createHash('sha256').update(key).digest('hex')}`;

@@ -3,7 +3,7 @@
 Internal review routes require authenticated SME/Admin sessions. Students cannot access them.
 
 - `POST /qbms/questions/:questionId/revisions/:versionId/submit-review` — submit a complete draft.
-- `GET /qbms/questions/review/queue` — retrieve the review queue.
+- `GET /qbms/questions/review/queue` — retrieve the review queue; SMEs see only assigned revisions, while administrators see the full queue.
 - `POST /qbms/questions/:questionId/revisions/:versionId/assign-reviewer` — Admin assigns an SME.
 - `POST /qbms/questions/:questionId/revisions/:versionId/review` — assigned SME approves review.
 - `POST /qbms/questions/:questionId/revisions/:versionId/reject-review` — assigned SME rejects review.

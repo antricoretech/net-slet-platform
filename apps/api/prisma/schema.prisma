@@ -156,6 +156,14 @@ enum AuditEventType {
   QUESTION_CHALLENGED
   QUESTION_CHALLENGE_RESOLVED
   QUESTION_TRANSLATION_REVIEWED
+  ATTEMPT_CREATED
+  ATTEMPT_STARTED
+  ANSWER_SAVED
+  SESSION_SUBMITTED
+  ATTEMPT_SUBMITTED
+  ATTEMPT_EXPIRED
+  SCORE_RUN_CREATED
+  RESULT_RELEASED
 }
 
 enum JurisdictionType {
@@ -185,6 +193,34 @@ enum AnswerPolicy {
   SINGLE_SELECT
   MULTI_SELECT
   EXACT_MATCH
+}
+
+enum TestFormStatus {
+  DRAFT
+  PUBLISHED
+  SUPERSEDED
+  WITHDRAWN
+}
+
+enum AttemptStatus {
+  CREATED
+  READY
+  IN_PROGRESS
+  SUBMITTED
+  EXPIRED
+}
+
+enum AttemptSessionStatus {
+  LOCKED
+  READY
+  IN_PROGRESS
+  SUBMITTED
+  EXPIRED
+}
+
+enum ResultReleaseStatus {
+  PENDING
+  PUBLISHED
 }
 
 model Examination {
@@ -244,6 +280,7 @@ model ExamCycle {
   syllabusVersions SyllabusVersion[]
   questions        Question[]
   questionGroups   QuestionGroup[]
+  testForms        TestForm[]
   createdAt        DateTime             @default(now())
 
   @@unique([examinationId, code])
@@ -288,6 +325,12 @@ model QuestionVersion {
   reviews      QuestionReview[]
   publication  QuestionPublication?
   challenges   QuestionChallenge[]
+  testFormQuestions TestFormQuestion[]
+  attemptAnswers    AttemptAnswer[]
+  answerEvents      AttemptAnswerEvent[]
+  learningEvidence  LearningEvidence[]
+  mistakeMineEntries MistakeMineEntry[]
+  explanationsUsed  ResultExplanation[]
   submittedAt  DateTime?
   approvedAt   DateTime?
   publishedAt  DateTime?
@@ -321,8 +364,9 @@ model QuestionAnswerKeyVersion {
   correctAnswers    Json
   exactMatch        Boolean         @default(false)
   createdById       String          @db.Uuid
-  createdBy         Account         @relation("AnswerKeyAuthors", fields: [createdById], references: [id], onDelete: Restrict)
-  createdAt         DateTime        @default(now())
+  createdBy         Account           @relation("AnswerKeyAuthors", fields: [createdById], references: [id], onDelete: Restrict)
+  testFormQuestions TestFormQuestion[]
+  createdAt         DateTime           @default(now())
 
   @@unique([questionVersionId, version])
 }
@@ -549,6 +593,7 @@ model ExamPatternVersion {
   subjectOverrides  SubjectPatternOverride[]
   languagePolicies  LanguagePolicy[]
   ruleSources       ExamRuleSource[]
+  testForms         TestForm[]
 
   @@unique([examCycleId, subjectCode, version])
   @@index([status])
@@ -720,6 +765,13 @@ model Account {
   reviewedTranslations     QuestionTranslation[]        @relation("TranslationReviewers")
   challengeReports         QuestionChallenge[]          @relation("ChallengeReporters")
   challengeResolutions     QuestionChallenge[]          @relation("ChallengeResolvers")
+  createdTestForms         TestForm[]                   @relation("TestFormCreators")
+  ownedAttempts            Attempt[]                    @relation("AttemptOwners")
+  attemptCommands          AttemptCommand[]             @relation("AttemptCommandOwners")
+  learningEvidence         LearningEvidence[]           @relation("LearningEvidenceOwners")
+  mistakeMineEntries       MistakeMineEntry[]           @relation("MistakeMineOwners")
+  learningTopicPerformance LearningTopicPerformance[]  @relation("LearningTopicPerformanceOwners")
+  learningRecommendations  LearningRecommendation[]    @relation("LearningRecommendationOwners")
 }
 
 model Session {
@@ -773,6 +825,8 @@ model AuditEvent {
   question          Question?           @relation(fields: [questionId], references: [id], onDelete: SetNull)
   questionVersionId String?             @db.Uuid
   questionVersion   QuestionVersion?    @relation(fields: [questionVersionId], references: [id], onDelete: SetNull)
+  attemptId         String?             @db.Uuid
+  attempt           Attempt?            @relation(fields: [attemptId], references: [id], onDelete: SetNull)
   ipAddress         String?             @db.VarChar(64)
   metadata          Json?
   createdAt         DateTime            @default(now())
@@ -782,4 +836,285 @@ model AuditEvent {
   @@index([patternVersionId, createdAt])
   @@index([questionId, createdAt])
   @@index([questionVersionId, createdAt])
+}
+
+model TestForm {
+  id               String              @id @default(uuid()) @db.Uuid
+  examCycleId      String              @db.Uuid
+  examCycle        ExamCycle           @relation(fields: [examCycleId], references: [id], onDelete: Restrict)
+  patternVersionId String              @db.Uuid
+  patternVersion   ExamPatternVersion  @relation(fields: [patternVersionId], references: [id], onDelete: Restrict)
+  subjectCode      String              @db.VarChar(80)
+  version          Int
+  status           TestFormStatus      @default(DRAFT)
+  snapshot         Json
+  snapshotHash     String              @db.Char(64)
+  createdById      String              @db.Uuid
+  createdBy        Account             @relation("TestFormCreators", fields: [createdById], references: [id], onDelete: Restrict)
+  publishedAt      DateTime?
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+  questions        TestFormQuestion[]
+  attempts         Attempt[]
+
+  @@unique([examCycleId, subjectCode, version])
+  @@index([status, publishedAt])
+  @@index([patternVersionId])
+}
+
+model TestFormQuestion {
+  id                String          @id @default(uuid()) @db.Uuid
+  testFormId        String          @db.Uuid
+  testForm          TestForm        @relation(fields: [testFormId], references: [id], onDelete: Cascade)
+  questionVersionId String          @db.Uuid
+  questionVersion   QuestionVersion @relation(fields: [questionVersionId], references: [id], onDelete: Restrict)
+  answerKeyVersionId String                   @db.Uuid
+  answerKeyVersion   QuestionAnswerKeyVersion @relation(fields: [answerKeyVersionId], references: [id], onDelete: Restrict)
+  sessionKey        String          @db.VarChar(80)
+  sectionKey        String          @db.VarChar(80)
+  sequence          Int
+  snapshot          Json
+  createdAt         DateTime        @default(now())
+
+  @@unique([testFormId, questionVersionId])
+  @@index([answerKeyVersionId])
+  @@index([testFormId, sessionKey, sectionKey, sequence])
+}
+
+model Attempt {
+  id                  String                    @id @default(uuid()) @db.Uuid
+  accountId           String                    @db.Uuid
+  account             Account                   @relation("AttemptOwners", fields: [accountId], references: [id], onDelete: Restrict)
+  testFormId          String                    @db.Uuid
+  testForm            TestForm                  @relation(fields: [testFormId], references: [id], onDelete: Restrict)
+  status              AttemptStatus             @default(CREATED)
+  revision            Int                       @default(0)
+  startIdempotencyKey String                    @db.VarChar(160)
+  startedAt           DateTime?
+  submittedAt         DateTime?
+  expiredAt           DateTime?
+  createdAt           DateTime                  @default(now())
+  updatedAt           DateTime                  @updatedAt
+  sessions            AttemptSession[]
+  answers             AttemptAnswer[]
+  answerEvents        AttemptAnswerEvent[]
+  submissionEvents    AttemptSubmissionEvent[]
+  commands            AttemptCommand[]
+  scoreRuns           ScoreRun[]
+  result              AttemptResult?
+  explanations        ResultExplanation[]
+  learningEvidence    LearningEvidence[]
+  mistakeMineEntries  MistakeMineEntry[]
+  learningRecommendations LearningRecommendation[]
+  auditEvents         AuditEvent[]
+
+  @@unique([accountId, startIdempotencyKey])
+  @@index([accountId, status, createdAt])
+}
+
+model AttemptSession {
+  id              String               @id @default(uuid()) @db.Uuid
+  attemptId       String               @db.Uuid
+  attempt         Attempt              @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  key             String               @db.VarChar(80)
+  sequence        Int
+  status          AttemptSessionStatus @default(READY)
+  timingPolicy    SessionTimingPolicy
+  durationSeconds Int
+  deadlineAt      DateTime?
+  startedAt       DateTime?
+  submittedAt     DateTime?
+  expiredAt       DateTime?
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+
+  @@unique([attemptId, key])
+  @@index([attemptId, status])
+}
+
+model AttemptAnswer {
+  id                 String          @id @default(uuid()) @db.Uuid
+  attemptId          String          @db.Uuid
+  attempt             Attempt         @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  questionVersionId  String          @db.Uuid
+  questionVersion    QuestionVersion @relation(fields: [questionVersionId], references: [id], onDelete: Restrict)
+  selectedOptionIds  Json
+  markedForReview    Boolean         @default(false)
+  revision           Int             @default(0)
+  lastIdempotencyKey String?         @db.VarChar(160)
+  updatedAt          DateTime        @updatedAt
+  createdAt          DateTime        @default(now())
+
+  @@unique([attemptId, questionVersionId])
+  @@index([attemptId, updatedAt])
+}
+
+model AttemptAnswerEvent {
+  id                String          @id @default(uuid()) @db.Uuid
+  attemptId         String          @db.Uuid
+  attempt           Attempt         @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  questionVersionId String          @db.Uuid
+  questionVersion   QuestionVersion @relation(fields: [questionVersionId], references: [id], onDelete: Restrict)
+  sequence          Int
+  selectedOptionIds Json
+  fingerprint       String          @db.Char(64)
+  idempotencyKey    String          @db.VarChar(160)
+  occurredAt        DateTime        @default(now())
+
+  @@unique([attemptId, idempotencyKey])
+  @@index([attemptId, sequence])
+}
+
+model AttemptSubmissionEvent {
+  id             String   @id @default(uuid()) @db.Uuid
+  attemptId      String   @db.Uuid
+  attempt        Attempt  @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  idempotencyKey String   @db.VarChar(160)
+  fingerprint    String   @db.Char(64)
+  eventType      String   @db.VarChar(40)
+  createdAt      DateTime @default(now())
+
+  @@unique([attemptId, idempotencyKey])
+  @@index([attemptId, createdAt])
+}
+
+model AttemptCommand {
+  id             String    @id @default(uuid()) @db.Uuid
+  accountId      String    @db.Uuid
+  account        Account   @relation("AttemptCommandOwners", fields: [accountId], references: [id], onDelete: Restrict)
+  attemptId      String?   @db.Uuid
+  attempt        Attempt?  @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  kind           String    @db.VarChar(40)
+  idempotencyKey String    @db.VarChar(160)
+  fingerprint    String    @db.Char(64)
+  response       Json?
+  createdAt      DateTime  @default(now())
+
+  @@unique([accountId, kind, idempotencyKey])
+  @@index([attemptId, createdAt])
+}
+
+model ScoreRun {
+  id                String        @id @default(uuid()) @db.Uuid
+  attemptId         String        @db.Uuid
+  attempt           Attempt       @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  runNumber         Int
+  scoreRunHash      String        @db.VarChar(128)
+  policyId          String        @db.VarChar(160)
+  policyVersion     String        @db.VarChar(80)
+  inputSnapshotHash String        @db.Char(64)
+  result            Json
+  createdAt         DateTime      @default(now())
+  publishedResult   AttemptResult?
+
+  @@unique([attemptId, runNumber])
+  @@unique([attemptId, scoreRunHash])
+}
+
+model AttemptResult {
+  id         String              @id @default(uuid()) @db.Uuid
+  attemptId  String              @unique @db.Uuid
+  attempt    Attempt             @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  scoreRunId String?             @unique @db.Uuid
+  scoreRun   ScoreRun?           @relation(fields: [scoreRunId], references: [id], onDelete: Restrict)
+  status     ResultReleaseStatus @default(PENDING)
+  summary    Json
+  releasedAt DateTime?
+  createdAt  DateTime            @default(now())
+  updatedAt  DateTime            @updatedAt
+}
+
+model ResultExplanation {
+  id                String          @id @default(uuid()) @db.Uuid
+  attemptId         String          @db.Uuid
+  attempt           Attempt         @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  questionVersionId String          @db.Uuid
+  questionVersion   QuestionVersion @relation(fields: [questionVersionId], references: [id], onDelete: Restrict)
+  selectedOptionIds Json
+  explanation       Json?
+  topicIds          Json
+  createdAt         DateTime        @default(now())
+
+  @@unique([attemptId, questionVersionId])
+  @@index([attemptId])
+}
+
+model LearningEvidence {
+  id                String          @id @default(uuid()) @db.Uuid
+  accountId         String          @db.Uuid
+  account           Account         @relation("LearningEvidenceOwners", fields: [accountId], references: [id], onDelete: Cascade)
+  attemptId         String          @db.Uuid
+  attempt           Attempt         @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  questionVersionId String          @db.Uuid
+  questionVersion   QuestionVersion @relation(fields: [questionVersionId], references: [id], onDelete: Restrict)
+  sourceEventId     String          @db.VarChar(160)
+  outcome           String          @db.VarChar(24)
+  topicIds          Json
+  eligible          Boolean         @default(false)
+  reasonCodes       Json
+  evidenceHash      String          @db.Char(64)
+  createdAt         DateTime        @default(now())
+  mistakeMineEntry  MistakeMineEntry?
+
+  @@unique([attemptId, sourceEventId])
+  @@index([accountId, createdAt])
+  @@index([accountId, outcome, createdAt])
+}
+
+model MistakeMineEntry {
+  id                 String          @id @default(uuid()) @db.Uuid
+  accountId          String          @db.Uuid
+  account            Account         @relation("MistakeMineOwners", fields: [accountId], references: [id], onDelete: Cascade)
+  attemptId          String          @db.Uuid
+  attempt            Attempt         @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  learningEvidenceId String          @unique @db.Uuid
+  learningEvidence   LearningEvidence @relation(fields: [learningEvidenceId], references: [id], onDelete: Cascade)
+  questionVersionId  String          @db.Uuid
+  questionVersion    QuestionVersion @relation(fields: [questionVersionId], references: [id], onDelete: Restrict)
+  status             String          @default("OPEN") @db.VarChar(24)
+  reason             String          @db.VarChar(80)
+  topicIds           Json
+  recommendation     String          @db.Text
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+
+  @@index([accountId, status, updatedAt])
+  @@index([attemptId])
+}
+
+model LearningTopicPerformance {
+  id               String   @id @default(uuid()) @db.Uuid
+  accountId        String   @db.Uuid
+  account          Account  @relation("LearningTopicPerformanceOwners", fields: [accountId], references: [id], onDelete: Cascade)
+  topicId          String   @db.Uuid
+  attemptCount     Int      @default(0)
+  questionCount    Int      @default(0)
+  answeredCount    Int      @default(0)
+  correctCount     Int      @default(0)
+  incorrectCount   Int      @default(0)
+  unattemptedCount Int      @default(0)
+  latestAttemptId  String?  @db.Uuid
+  updatedAt        DateTime @updatedAt
+  createdAt        DateTime @default(now())
+
+  @@unique([accountId, topicId])
+  @@index([accountId, updatedAt])
+}
+
+model LearningRecommendation {
+  id                String   @id @default(uuid()) @db.Uuid
+  accountId         String   @db.Uuid
+  account           Account  @relation("LearningRecommendationOwners", fields: [accountId], references: [id], onDelete: Cascade)
+  attemptId         String   @db.Uuid
+  attempt           Attempt  @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  key               String   @db.VarChar(160)
+  reason            String   @db.VarChar(80)
+  recommendation    String   @db.Text
+  priority          Int      @default(0)
+  sourceEvidenceIds Json
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@unique([accountId, attemptId, key, reason])
+  @@index([accountId, priority, updatedAt])
 }

@@ -6,8 +6,10 @@ import path from 'node:path';
 const requireFromApi = createRequire(path.resolve('apps/api/package.json'));
 const { Client } = requireFromApi('pg') as { Client: new (options: { connectionString: string }) => DbClient };
 interface DbClient { connect(): Promise<void>; end(): Promise<void>; query(text: string, values?: unknown[]): Promise<{ rows: Array<Record<string, unknown>> }>; }
+const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://localhost:4000/api/v1';
 
 function loadDatabaseUrl(): string {
+  if (process.env.DATABASE_URL) return process.env.DATABASE_URL;
   const envPath = path.resolve('apps/api/.env');
   if (fs.existsSync(envPath)) {
     for (const line of fs.readFileSync(envPath, 'utf8').split(/\r?\n/)) {
@@ -15,7 +17,6 @@ function loadDatabaseUrl(): string {
       if (match) return match[1];
     }
   }
-  if (process.env.DATABASE_URL) return process.env.DATABASE_URL;
   throw new Error('DATABASE_URL is required for the administrator E2E fixture');
 }
 
@@ -23,7 +24,7 @@ async function api(page: import('@playwright/test').Page, pathName: string, meth
   return page.evaluate(async ({ base, pathName: requestPath, method: requestMethod, body: requestBody }) => {
     const response = await fetch(`${base}${requestPath}`, { method: requestMethod, credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: requestBody === undefined ? undefined : JSON.stringify(requestBody) });
     return { status: response.status, body: await response.json().catch(() => ({})) };
-  }, { base: 'http://localhost:4000/api/v1', pathName, method, body });
+  }, { base: apiBase, pathName, method, body });
 }
 
 async function signIn(page: import('@playwright/test').Page, email: string, password: string) {
@@ -33,6 +34,13 @@ async function signIn(page: import('@playwright/test').Page, email: string, pass
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page).toHaveURL(/\/account$/);
 }
+
+test.beforeEach(async ({ request }) => {
+  await expect.poll(async () => {
+    try { return (await request.get('http://127.0.0.1:4000/api/v1/health/ready')).status(); }
+    catch { return 0; }
+  }, { timeout: 60_000 }).toBe(200);
+});
 
 test('student can register, view account, log out and log back in', async ({ page }) => {
   const email = `e2e-${Date.now()}@example.test`;
@@ -54,10 +62,10 @@ test('student can register, view account, log out and log back in', async ({ pag
 test('student-facing catalogue and protected pattern writes are reachable safely', async ({ page }) => {
   await page.goto('/examinations');
   await expect(page.getByRole('heading', { name: 'Distinct exams. Distinct rules.' })).toBeVisible();
-  const result = await page.evaluate(async () => {
-    const response = await fetch('http://localhost:4000/api/v1/catalogue/examinations/UGC_NET/patterns', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cycleCode: 'TEST', subjectCode: 'CS', version: 1, rules: { sections: [] } }) });
+  const result = await page.evaluate(async (base) => {
+    const response = await fetch(`${base}/catalogue/examinations/UGC_NET/patterns`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cycleCode: 'TEST', subjectCode: 'CS', version: 1, rules: { sections: [] } }) });
     return response.status;
-  });
+  }, apiBase);
   expect(result).toBe(401);
 });
 

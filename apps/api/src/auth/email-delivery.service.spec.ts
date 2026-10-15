@@ -6,11 +6,9 @@ describe('EmailDeliveryService', () => {
   const service = new EmailDeliveryService();
 
   afterEach(() => {
-    process.env.EMAIL_VERIFICATION_PROVIDER = original.provider;
-    process.env.EMAIL_PROVIDER_URL = original.url;
-    process.env.EMAIL_PROVIDER_API_KEY = original.key;
-    process.env.EMAIL_FROM = original.from;
-    process.env.NODE_ENV = original.nodeEnv;
+    for (const [key, value] of Object.entries({ EMAIL_VERIFICATION_PROVIDER: original.provider, EMAIL_PROVIDER_URL: original.url, EMAIL_PROVIDER_API_KEY: original.key, EMAIL_FROM: original.from, NODE_ENV: original.nodeEnv })) {
+      if (value === undefined) delete process.env[key]; else process.env[key] = value;
+    }
     jest.restoreAllMocks();
   });
 
@@ -46,5 +44,26 @@ describe('EmailDeliveryService', () => {
     process.env.EMAIL_FROM = 'no-reply@example.test';
     jest.spyOn(global, 'fetch').mockResolvedValue(new Response(null, { status: 503 }));
     await expect(service.sendVerification('student@example.test', 'c'.repeat(64))).rejects.toBeInstanceOf(ServiceUnavailableException);
+  });
+
+  it('rejects non-HTTPS webhook endpoints before sending', async () => {
+    process.env.NODE_ENV = 'production';
+    process.env.EMAIL_VERIFICATION_PROVIDER = 'webhook';
+    process.env.EMAIL_PROVIDER_URL = 'http://mailer.example.test/send';
+    process.env.EMAIL_PROVIDER_API_KEY = 'test-key';
+    process.env.EMAIL_FROM = 'no-reply@example.test';
+    const fetchMock = jest.spyOn(global, 'fetch');
+    await expect(service.sendVerification('student@example.test', 'd'.repeat(64))).rejects.toBeInstanceOf(ServiceUnavailableException);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('fails closed on a webhook network error without exposing the token', async () => {
+    process.env.NODE_ENV = 'production';
+    process.env.EMAIL_VERIFICATION_PROVIDER = 'webhook';
+    process.env.EMAIL_PROVIDER_URL = 'https://mailer.example.test/send';
+    process.env.EMAIL_PROVIDER_API_KEY = 'test-key';
+    process.env.EMAIL_FROM = 'no-reply@example.test';
+    jest.spyOn(global, 'fetch').mockRejectedValue(new Error('network failure'));
+    await expect(service.sendPasswordReset('student@example.test', 'e'.repeat(64))).rejects.toThrow('Email delivery provider is unavailable');
   });
 });

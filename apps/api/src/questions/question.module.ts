@@ -8,5 +8,5 @@ import { QuestionChallengeService } from './question-challenge.service';
 import { QuestionTrustController } from './question-trust.controller';
 import { QuestionPublicController } from './question-public.controller';
 
-@Module({ imports: [DatabaseModule, AuthModule], controllers: [QuestionController, QuestionTrustController, QuestionPublicController], providers: [QuestionService, QuestionReviewService, QuestionChallengeService] })
+@Module({ imports: [DatabaseModule, AuthModule], controllers: [QuestionTrustController, QuestionController, QuestionPublicController], providers: [QuestionService, QuestionReviewService, QuestionChallengeService] })
 export class QuestionModule {}
