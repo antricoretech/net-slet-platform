@@ -11,7 +11,7 @@ await client.connect();
 let accountId;
 let sessionCookie;
 let attemptId;
-const ids = Object.fromEntries(['organizer', 'examination', 'cycle', 'pattern', 'question', 'version', 'optionA', 'optionB', 'answerKey', 'laterAnswerKey', 'form', 'formQuestion'].map((name) => [name, crypto.randomUUID()]));
+const ids = Object.fromEntries(['organizer', 'examination', 'cycle', 'syllabus', 'unit', 'topic', 'mapping', 'pattern', 'question', 'version', 'optionA', 'optionB', 'answerKey', 'laterAnswerKey', 'form', 'formQuestion'].map((name) => [name, crypto.randomUUID()]));
 
 async function request(path, init = {}) {
   const headers = { 'content-type': 'application/json', ...(sessionCookie ? { cookie: sessionCookie } : {}), ...(init.headers ?? {}) };
@@ -45,9 +45,13 @@ try {
   await client.query('INSERT INTO "ExamOrganizer" (id, code, name, "updatedAt") VALUES ($1, $2, $3, CURRENT_TIMESTAMP)', [ids.organizer, `STAGE_B_${ids.form.slice(0, 8)}`, 'Stage B integration organizer']);
   await client.query('INSERT INTO "Examination" (id, code, name, family, "organizerId", "updatedAt") VALUES ($1, $2, $3, \'UGC_NET\', $4, CURRENT_TIMESTAMP)', [ids.examination, `STAGE_B_${ids.form.slice(0, 8)}`, 'Stage B integration examination', ids.organizer]);
   await client.query('INSERT INTO "ExamCycle" (id, "examinationId", code) VALUES ($1, $2, $3)', [ids.cycle, ids.examination, `STAGE_B_${ids.form.slice(0, 8)}`]);
+  await client.query('INSERT INTO "SyllabusVersion" (id, "examCycleId", "subjectCode", version, title, status, "createdById", "updatedAt") VALUES ($1, $2, \'INTEGRATION\', 1, \'HTTP integration syllabus\', \'DRAFT\', $3, CURRENT_TIMESTAMP)', [ids.syllabus, ids.cycle, accountId]);
+  await client.query('INSERT INTO "SubjectUnit" (id, "syllabusVersionId", code, title, sequence, "updatedAt") VALUES ($1, $2, \'UNIT-1\', \'HTTP integration unit\', 0, CURRENT_TIMESTAMP)', [ids.unit, ids.syllabus]);
+  await client.query('INSERT INTO "SyllabusTopic" (id, "subjectUnitId", code, title, sequence, "updatedAt") VALUES ($1, $2, \'TOPIC-1\', \'HTTP integration topic\', 0, CURRENT_TIMESTAMP)', [ids.topic, ids.unit]);
   await client.query('INSERT INTO "ExamPatternVersion" (id, "examCycleId", "subjectCode", version, status, rules, "ruleHash", "publishedAt") VALUES ($1, $2, \'INTEGRATION\', 1, \'PUBLISHED\', $3::jsonb, \'stage-b-http\', CURRENT_TIMESTAMP)', [ids.pattern, ids.cycle, JSON.stringify({ sessions: [] })]);
   await client.query('INSERT INTO "Question" (id, "examCycleId", "subjectCode", "createdById", "updatedAt") VALUES ($1, $2, \'INTEGRATION\', $3, CURRENT_TIMESTAMP)', [ids.question, ids.cycle, accountId]);
   await client.query('INSERT INTO "QuestionVersion" (id, "questionId", version, status, type, prompt, "authoredById", "updatedAt") VALUES ($1, $2, 1, \'DRAFT\', \'SINGLE_CHOICE\', $3::jsonb, $4, CURRENT_TIMESTAMP)', [ids.version, ids.question, JSON.stringify({ text: 'Integration-only question' }), accountId]);
+  await client.query('INSERT INTO "QuestionSyllabusMapping" (id, "questionVersionId", "syllabusTopicId") VALUES ($1, $2, $3)', [ids.mapping, ids.version, ids.topic]);
   await client.query('INSERT INTO "QuestionOption" (id, "questionVersionId", "optionKey", "optionText", sequence, "updatedAt") VALUES ($1, $2, \'A\', $3::jsonb, 0, CURRENT_TIMESTAMP), ($4, $2, \'B\', $5::jsonb, 1, CURRENT_TIMESTAMP)', [ids.optionA, ids.version, JSON.stringify({ text: 'A' }), ids.optionB, JSON.stringify({ text: 'B' })]);
   await client.query('INSERT INTO "QuestionAnswerKeyVersion" (id, "questionVersionId", version, "correctAnswers", "createdById") VALUES ($1, $2, 1, $3::jsonb, $4)', [ids.answerKey, ids.version, JSON.stringify(['a']), accountId]);
   await client.query('INSERT INTO "TestForm" (id, "examCycleId", "patternVersionId", "subjectCode", version, status, snapshot, "snapshotHash", "createdById", "publishedAt", "updatedAt") VALUES ($1, $2, $3, \'INTEGRATION\', 1, \'PUBLISHED\', $4::jsonb, \'stage-b-http-fixture\', $5, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)', [ids.form, ids.cycle, ids.pattern, JSON.stringify(snapshot), accountId]);
@@ -65,11 +69,16 @@ try {
   const duplicate = await request(`/attempts/${attemptId}/submit`, { method: 'POST' });
   const concurrent = await Promise.all([request(`/attempts/${attemptId}/submit`, { method: 'POST' }), request(`/attempts/${attemptId}/submit`, { method: 'POST' })]);
   const persisted = await request(`/attempts/${attemptId}/result`);
-  const learning = await request(`/attempts/${attemptId}/learning-summary`);
+  const pendingLearning = await request(`/attempts/${attemptId}/learning-summary`);
+  const pendingHistory = await request('/attempts/learning-history');
   const durableEvidence = await client.query('SELECT COUNT(*)::int AS count FROM "LearningEvidence" WHERE "attemptId" = $1', [attemptId]);
   const durableMistakes = await client.query('SELECT COUNT(*)::int AS count FROM "MistakeMineEntry" WHERE "attemptId" = $1', [attemptId]);
-  if (resumed.form.snapshotId !== ids.form || saved.attemptRevision <= activated.revision || result.correct !== 1 || persisted.scoreRunReference !== result.scoreRunReference || duplicate.scoreRunReference !== result.scoreRunReference || concurrent.some((item) => item.scoreRunReference !== result.scoreRunReference) || learning.analytics.overall.correct !== 1 || durableEvidence.rows[0].count !== 1 || durableMistakes.rows[0].count !== 0) throw new Error('Persistent CBT HTTP assertions failed');
-  console.log('CBT HTTP integration checks passed: authenticated start, resume, server session, durable answer, atomic submission, deterministic scoring and durable learning projection.');
+  if (pendingLearning.available !== false || pendingLearning.releaseStatus !== 'PENDING' || 'analytics' in pendingLearning || 'durableEvidence' in pendingLearning || 'recommendations' in pendingLearning || pendingHistory.topics.length !== 0 || pendingHistory.mistakes.length !== 0 || pendingHistory.recommendations.length !== 0) throw new Error('Pending learning projection disclosed unreleased evidence');
+  await client.query('UPDATE "AttemptResult" SET status = \'PUBLISHED\', "releasedAt" = CURRENT_TIMESTAMP WHERE "attemptId" = $1', [attemptId]);
+  const releasedLearning = await request(`/attempts/${attemptId}/learning-summary`);
+  const releasedHistory = await request('/attempts/learning-history');
+  if (resumed.form.snapshotId !== ids.form || saved.attemptRevision <= activated.revision || result.correct !== 1 || persisted.scoreRunReference !== result.scoreRunReference || duplicate.scoreRunReference !== result.scoreRunReference || concurrent.some((item) => item.scoreRunReference !== result.scoreRunReference) || releasedLearning.available !== true || releasedLearning.analytics.overall.correct !== 1 || releasedHistory.topics.length !== 1 || durableEvidence.rows[0].count !== 1 || durableMistakes.rows[0].count !== 0) throw new Error('Persistent CBT HTTP assertions failed');
+  console.log('CBT HTTP integration checks passed: authenticated persistence, idempotent scoring, pending-data withholding and published learning release.');
 } finally {
   if (accountId) {
     await client.query('DELETE FROM "AuditEvent" WHERE "accountId" = $1', [accountId]);
@@ -77,6 +86,7 @@ try {
     await client.query('DELETE FROM "TestForm" WHERE id = $1', [ids.form]);
     await client.query('DELETE FROM "Question" WHERE id = $1', [ids.question]);
     await client.query('DELETE FROM "ExamPatternVersion" WHERE id = $1', [ids.pattern]);
+    await client.query('DELETE FROM "SyllabusVersion" WHERE id = $1', [ids.syllabus]);
     await client.query('DELETE FROM "ExamCycle" WHERE id = $1', [ids.cycle]);
     await client.query('DELETE FROM "Examination" WHERE id = $1', [ids.examination]);
     await client.query('DELETE FROM "ExamOrganizer" WHERE id = $1', [ids.organizer]);

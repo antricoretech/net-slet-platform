@@ -125,7 +125,7 @@ export class AttemptsService {
 
   async activateSession(accountId: string, attemptId: string, sessionId: string) {
     const now = new Date();
-    return this.database.$transaction(async (tx) => {
+    const outcome = await this.database.$transaction(async (tx) => {
       const attempt = await tx.attempt.findFirst({ where: { id: attemptId, accountId }, include: { sessions: { orderBy: { sequence: 'asc' } }, answers: true, testForm: true } });
       if (!attempt) throw new NotFoundException('Attempt not found');
       if (attempt.status !== AttemptStatus.READY && attempt.status !== AttemptStatus.IN_PROGRESS) throw new ConflictException('Attempt cannot start another session');
@@ -138,19 +138,21 @@ export class AttemptsService {
       if (session.status !== AttemptSessionStatus.READY && session.status !== AttemptSessionStatus.IN_PROGRESS) throw new ConflictException('Attempt session is not available');
       if (session.deadlineAt && now >= session.deadlineAt) {
         await this.expireDueSession(tx, attempt.id, session.id, accountId, now);
-        throw new ConflictException('Attempt session has expired');
+        return { kind: 'EXPIRED' as const };
       }
       const startedAt = session.startedAt ?? now;
       const deadlineAt = session.deadlineAt ?? new Date(startedAt.getTime() + session.durationSeconds * 1000);
       const updated = await tx.attempt.update({ where: { id: attempt.id }, data: { status: AttemptStatus.IN_PROGRESS, startedAt: attempt.startedAt ?? startedAt, revision: { increment: 1 }, sessions: { update: { where: { id: session.id }, data: { status: AttemptSessionStatus.IN_PROGRESS, startedAt, deadlineAt } } } }, include: { sessions: { orderBy: { sequence: 'asc' } }, answers: true, testForm: true } });
       await tx.auditEvent.create({ data: { type: AuditEventType.ATTEMPT_STARTED, accountId, attemptId: attempt.id, metadata: { sessionId: session.id, deadlineAt: deadlineAt.toISOString() } } });
-      return this.toState(updated, parseSnapshot(updated.testForm.snapshot));
+      return { kind: 'ACTIVATED' as const, state: this.toState(updated, parseSnapshot(updated.testForm.snapshot)) };
     });
+    if (outcome.kind === 'EXPIRED') throw new ConflictException('Attempt session has expired');
+    return outcome.state;
   }
 
   async saveAnswer(accountId: string, attemptId: string, questionVersionId: string, input: unknown) {
     const parsed = this.parseAnswer(input);
-    return this.database.$transaction(async (tx) => {
+    const outcome = await this.database.$transaction(async (tx) => {
       const attempt = await tx.attempt.findFirst({ where: { id: attemptId, accountId }, include: { sessions: { orderBy: { sequence: 'asc' } }, answers: true, testForm: { include: { questions: true } } } });
       if (!attempt) throw new NotFoundException('Attempt not found');
       if (attempt.status !== AttemptStatus.IN_PROGRESS) throw new ConflictException('Attempt is not active');
@@ -161,7 +163,7 @@ export class AttemptsService {
         const deadlineGuard = await tx.attemptSession.updateMany({ where: { id: activeSession.id, attemptId: attempt.id, status: AttemptSessionStatus.IN_PROGRESS, deadlineAt: { gt: now } }, data: { updatedAt: now } });
         if (deadlineGuard.count !== 1) {
           await this.expireDueSession(tx, attempt.id, activeSession.id, accountId, now);
-          throw new ConflictException('Attempt session has expired');
+          return { kind: 'EXPIRED' as const };
         }
       }
       const question = attempt.testForm.questions.find((item) => item.questionVersionId === questionVersionId && item.sessionKey === activeSession.key);
@@ -177,15 +179,17 @@ export class AttemptsService {
       if (prior) {
         if (prior.fingerprint !== fingerprint) throw new ConflictException('Idempotency key was already used with different content');
         const current = attempt.answers.find((answer) => answer.questionVersionId === questionVersionId);
-        return { accepted: true as const, attemptRevision: attempt.revision, answer: { questionVersionId, selectedOptionIds: jsonArray(prior.selectedOptionIds), markedForReview: current?.markedForReview ?? false } };
+        return { kind: 'SAVED' as const, response: { accepted: true as const, attemptRevision: attempt.revision, answer: { questionVersionId, selectedOptionIds: jsonArray(prior.selectedOptionIds), markedForReview: current?.markedForReview ?? false } } };
       }
       if (attempt.revision !== parsed.expectedRevision) throw new ConflictException('Attempt has changed; reload before retrying');
       await tx.attempt.updateMany({ where: { id: attempt.id, accountId, revision: parsed.expectedRevision }, data: { revision: { increment: 1 } } }).then((result) => { if (result.count !== 1) throw new ConflictException('Attempt has changed; reload before retrying'); });
       const answer = await tx.attemptAnswer.upsert({ where: { attemptId_questionVersionId: { attemptId, questionVersionId } }, update: { selectedOptionIds: selection as Prisma.InputJsonValue, revision: { increment: 1 }, lastIdempotencyKey: parsed.idempotencyKey }, create: { attemptId, questionVersionId, selectedOptionIds: selection as Prisma.InputJsonValue, lastIdempotencyKey: parsed.idempotencyKey } });
       await tx.attemptAnswerEvent.create({ data: { attemptId, questionVersionId, sequence: attempt.revision + 1, selectedOptionIds: selection as Prisma.InputJsonValue, fingerprint, idempotencyKey: parsed.idempotencyKey } });
       await tx.auditEvent.create({ data: { type: AuditEventType.ANSWER_SAVED, accountId, attemptId, questionVersionId, metadata: { attemptRevision: attempt.revision + 1 } } });
-      return { accepted: true as const, attemptRevision: attempt.revision + 1, answer: { questionVersionId, selectedOptionIds: selection, markedForReview: answer.markedForReview } };
+      return { kind: 'SAVED' as const, response: { accepted: true as const, attemptRevision: attempt.revision + 1, answer: { questionVersionId, selectedOptionIds: selection, markedForReview: answer.markedForReview } } };
     });
+    if (outcome.kind === 'EXPIRED') throw new ConflictException('Attempt session has expired');
+    return outcome.response;
   }
 
   async submitSession(accountId: string, attemptId: string, sessionId: string) {
