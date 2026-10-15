@@ -15,6 +15,6 @@ export default defineConfig({
   use: { baseURL: `http://127.0.0.1:${webPort}`, trace: 'retain-on-failure', ...devices['Desktop Chrome'] },
   webServer: externalServers ? undefined : [
     { command: process.env.COLD_START_QA === '1' ? 'corepack pnpm --filter @net-slet/api start' : 'corepack pnpm --filter @net-slet/api dev', url: `http://127.0.0.1:${apiPort}/api/v1/health/ready`, reuseExistingServer: process.env.COLD_START_QA !== '1', timeout: 120_000 },
-    { command: `corepack pnpm --filter @net-slet/web exec next dev -p ${webPort}`, url: `http://127.0.0.1:${webPort}`, reuseExistingServer: process.env.COLD_START_QA !== '1', timeout: 120_000 },
+    { command: process.env.COLD_START_QA === '1' ? `corepack pnpm --filter @net-slet/web exec next start -p ${webPort}` : `corepack pnpm --filter @net-slet/web exec next dev -p ${webPort}`, url: `http://127.0.0.1:${webPort}`, reuseExistingServer: process.env.COLD_START_QA !== '1', timeout: 120_000 },
   ],
 });
