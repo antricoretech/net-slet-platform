@@ -13,7 +13,9 @@ export default async function globalTeardown(_config: FullConfig) {
   if (!databaseUrl || !fs.existsSync(fixturePath)) return;
   const fixture = JSON.parse(fs.readFileSync(fixturePath, 'utf8')) as { studentA: { id: string }; studentB: { id: string }; examinationId: string; cycleId: string; forms: Array<{ formId: string; patternId: string; questionId: string; syllabusVersionId: string; subjectUnitId: string; topicId: string }> };
   const parsed = new URL(databaseUrl);
-  if (parsed.port !== '55434') throw new Error('E2E teardown refuses a database URL outside isolated port 55434');
+  const isLocalStageB = parsed.port === '55434';
+  const isCiStageB = process.env.STAGE_B_CI === '1' && parsed.port === '5432' && parsed.pathname === '/netslet_stageb_ci';
+  if (!isLocalStageB && !isCiStageB) throw new Error('E2E teardown refuses a database URL outside the isolated Stage B targets');
   const client = new Client({ connectionString: databaseUrl });
   await client.connect();
   const identity = await client.query('SELECT current_database() AS name, inet_server_port() AS port');

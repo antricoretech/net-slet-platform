@@ -11,9 +11,12 @@ function isolatedDatabaseUrl(): string {
   const value = process.env.DATABASE_URL;
   if (!value) throw new Error('Sprint 2 E2E requires an explicit isolated DATABASE_URL');
   const url = new URL(value);
-  const isLocalRehearsal = url.hostname === '127.0.0.1' && url.port === '55432' && url.pathname === '/stage_a_acceptance';
-  const isCandidateCi = process.env.STAGE_A_REHEARSAL === '1' && url.hostname === '127.0.0.1' && url.port === '5432' && url.pathname.startsWith('/stage_a_');
-  if (!isLocalRehearsal && !isCandidateCi) throw new Error('Sprint 2 E2E refuses a non-isolated database');
+  const localHost = url.hostname === '127.0.0.1' || url.hostname === 'localhost';
+  const isLocalRehearsal = localHost && url.port === '55432' && url.pathname === '/stage_a_acceptance';
+  const isCandidateCi = process.env.STAGE_A_REHEARSAL === '1' && localHost && url.port === '5432' && url.pathname.startsWith('/stage_a_');
+  const isLocalStageB = localHost && url.port === '55434' && url.pathname.startsWith('/netslet_stageb_');
+  const isStageBCi = process.env.STAGE_B_CI === '1' && localHost && url.port === '5432' && url.pathname === '/netslet_stageb_ci';
+  if (!isLocalRehearsal && !isCandidateCi && !isLocalStageB && !isStageBCi) throw new Error('Sprint 2 E2E refuses a non-isolated database');
   return value;
 }
 
@@ -40,7 +43,7 @@ test('isolated authenticated author-review-publish-challenge journey enforces se
   const db = new Client({ connectionString: dbUrl });
   await db.connect();
   const identity = await db.query('SELECT current_database() AS name, inet_server_port() AS port');
-  expect(identity.rows[0].name).toMatch(/^stage_a_/);
+  expect(String(identity.rows[0].name)).toMatch(/^(stage_a_|netslet_stageb_)/);
   expect(identity.rows[0].port).toBe(5432);
 
   const suffix = Date.now().toString(36).toUpperCase();

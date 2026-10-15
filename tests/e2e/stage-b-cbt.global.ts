@@ -23,7 +23,9 @@ async function register(email: string, password: string) {
 
 export default async function globalSetup(_config: FullConfig) {
   const parsed = new URL(databaseUrl!);
-  if (!parsed.port || parsed.port !== '55434') throw new Error('E2E fixture refuses a database URL outside isolated port 55434');
+  const isLocalStageB = parsed.port === '55434';
+  const isCiStageB = process.env.STAGE_B_CI === '1' && parsed.port === '5432' && parsed.pathname === '/netslet_stageb_ci';
+  if (!isLocalStageB && !isCiStageB) throw new Error('E2E fixture refuses a database URL outside the isolated Stage B targets');
   const client = new Client({ connectionString: databaseUrl });
   await client.connect();
   const identity = await client.query('SELECT current_database() AS name, inet_server_port() AS port');
