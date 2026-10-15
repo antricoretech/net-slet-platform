@@ -6,7 +6,7 @@ import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { Account, ApiList, QuestionDetail, QuestionSummary, QuestionType, ReviewQueueItem, apiFetch, questionTypeLabel } from '../../lib/qbms-api';
 
 const types: QuestionType[] = ['SINGLE_CHOICE', 'MULTIPLE_CHOICE', 'ASSERTION_REASON', 'MATCHING', 'ORDERING', 'READING_COMPREHENSION', 'DATA_INTERPRETATION', 'MATHEMATICAL'];
-const nav = [{ href: '/workspace', label: 'Overview' }, { href: '/workspace/questions', label: 'Question bank' }, { href: '/workspace/questions/new', label: 'Author question' }, { href: '/workspace/review', label: 'Review queue' }, { href: '/workspace/challenges', label: 'Challenges' }];
+const nav = [{ href: '/workspace', label: 'Overview' }, { href: '/workspace/questions', label: 'Question bank' }, { href: '/workspace/questions/new', label: 'Author question' }, { href: '/workspace/review', label: 'Review queue' }, { href: '/workspace/publication', label: 'Publication readiness' }, { href: '/workspace/challenges', label: 'Challenges' }];
 
 export function WorkspaceShell({ view }: { view: 'dashboard' | 'questions' | 'new' | 'review' | 'challenges' }) {
   const pathname = usePathname();
