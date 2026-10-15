@@ -29,9 +29,11 @@ jobs:
           --health-retries 20
     env:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/netslet_dev?schema=public
+      STAGE_A_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/netslet_dev?schema=public
       REDIS_URL: redis://localhost:6379
       WEB_ORIGIN: http://localhost:3000
       WEB_ORIGINS: http://localhost:3000
+      STAGE_B_CI: '1'
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -46,7 +48,7 @@ jobs:
       - name: Generate database client
         run: pnpm db:generate
       - name: Apply database migrations
-        run: pnpm --filter @net-slet/api exec prisma migrate deploy
+        run: pnpm --filter @net-slet/api exec prisma migrate deploy --config ../../recovery/stage-a/prisma.config.ts
       - name: Validate workspace
         run: pnpm verify:structure
       - name: Type-check
