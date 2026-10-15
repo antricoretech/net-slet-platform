@@ -69,7 +69,7 @@ describe('AttemptsService', () => {
     expect(tx.attempt.updateMany).not.toHaveBeenCalled();
   });
 
-  it('expires a due session transactionally and rejects a late answer without writing it', async () => {
+  it('commits a due-session expiry before rejecting a late answer without writing it', async () => {
     const attempt = attemptRecord({ sessions: [{ ...attemptRecord().sessions[0], deadlineAt: new Date(Date.now() - 1_000) }] });
     const tx = {
       attempt: { findFirst: jest.fn().mockResolvedValue(attempt), updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
@@ -78,10 +78,26 @@ describe('AttemptsService', () => {
       attemptAnswer: { upsert: jest.fn() },
       auditEvent: { create: jest.fn().mockResolvedValue({}) },
     };
-    const database = { $transaction: jest.fn(async (callback: (transaction: typeof tx) => unknown) => callback(tx)) };
+    let transactionCommitted = false;
+    const database = { $transaction: jest.fn(async (callback: (transaction: typeof tx) => unknown) => { const result = await callback(tx); transactionCommitted = true; return result; }) };
     await expect(new AttemptsService(database as unknown as PrismaService).saveAnswer('account-1', 'attempt-1', 'question-1', { selectedOptionIds: ['option-a'], expectedRevision: 0, idempotencyKey: 'late-answer' })).rejects.toBeInstanceOf(ConflictException);
+    expect(transactionCommitted).toBe(true);
     expect(tx.attemptAnswer.upsert).not.toHaveBeenCalled();
     expect(tx.attemptAnswerEvent.create).not.toHaveBeenCalled();
     expect(tx.attempt.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: AttemptStatus.EXPIRED }) }));
+  });
+
+  it('commits an existing-deadline expiry before rejecting session reactivation', async () => {
+    const attempt = attemptRecord({ sessions: [{ ...attemptRecord().sessions[0], deadlineAt: new Date(Date.now() - 1_000) }] });
+    const tx = {
+      attempt: { findFirst: jest.fn().mockResolvedValue(attempt), updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      attemptSession: { updateMany: jest.fn().mockResolvedValue({ count: 1 }), findMany: jest.fn().mockResolvedValue([{ ...attempt.sessions[0], status: AttemptSessionStatus.EXPIRED }]) },
+      auditEvent: { create: jest.fn().mockResolvedValue({}) },
+    };
+    let transactionCommitted = false;
+    const database = { $transaction: jest.fn(async (callback: (transaction: typeof tx) => unknown) => { const result = await callback(tx); transactionCommitted = true; return result; }) };
+    await expect(new AttemptsService(database as unknown as PrismaService).activateSession('account-1', 'attempt-1', 'session-1')).rejects.toBeInstanceOf(ConflictException);
+    expect(transactionCommitted).toBe(true);
+    expect(tx.auditEvent.create).toHaveBeenCalledTimes(1);
   });
 });
