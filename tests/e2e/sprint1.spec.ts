@@ -62,10 +62,10 @@ test('student can register, view account, log out and log back in', async ({ pag
 test('student-facing catalogue and protected pattern writes are reachable safely', async ({ page }) => {
   await page.goto('/examinations');
   await expect(page.getByRole('heading', { name: 'Distinct exams. Distinct rules.' })).toBeVisible();
-  const result = await page.evaluate(async () => {
-    const response = await fetch(`${apiBase}/catalogue/examinations/UGC_NET/patterns`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cycleCode: 'TEST', subjectCode: 'CS', version: 1, rules: { sections: [] } }) });
+  const result = await page.evaluate(async (base) => {
+    const response = await fetch(`${base}/catalogue/examinations/UGC_NET/patterns`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cycleCode: 'TEST', subjectCode: 'CS', version: 1, rules: { sections: [] } }) });
     return response.status;
-  });
+  }, apiBase);
   expect(result).toBe(401);
 });
 
