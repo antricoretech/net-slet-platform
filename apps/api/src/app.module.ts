@@ -9,9 +9,10 @@ import { PatternModule } from './patterns/pattern.module';
 import { SyllabusModule } from './syllabus/syllabus.module';
 import { QuestionModule } from './questions/question.module';
 import { AttemptsModule } from './attempts/attempts.module';
+import { ContentPublicationModule } from './content-publication/content-publication.module';
 
 @Module({
-  imports: [ConfigModule.forRoot({ isGlobal: true, envFilePath: ['.env'] }), DatabaseModule, AuthModule, CatalogueModule, PatternModule, SyllabusModule, QuestionModule, AttemptsModule],
+  imports: [ConfigModule.forRoot({ isGlobal: true, envFilePath: ['.env'] }), DatabaseModule, AuthModule, CatalogueModule, PatternModule, SyllabusModule, QuestionModule, AttemptsModule, ContentPublicationModule],
   controllers: [HealthController],
   providers: [HealthService],
 })
