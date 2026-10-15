@@ -364,8 +364,9 @@ model QuestionAnswerKeyVersion {
   correctAnswers    Json
   exactMatch        Boolean         @default(false)
   createdById       String          @db.Uuid
-  createdBy         Account         @relation("AnswerKeyAuthors", fields: [createdById], references: [id], onDelete: Restrict)
-  createdAt         DateTime        @default(now())
+  createdBy         Account           @relation("AnswerKeyAuthors", fields: [createdById], references: [id], onDelete: Restrict)
+  testFormQuestions TestFormQuestion[]
+  createdAt         DateTime           @default(now())
 
   @@unique([questionVersionId, version])
 }
@@ -867,6 +868,8 @@ model TestFormQuestion {
   testForm          TestForm        @relation(fields: [testFormId], references: [id], onDelete: Cascade)
   questionVersionId String          @db.Uuid
   questionVersion   QuestionVersion @relation(fields: [questionVersionId], references: [id], onDelete: Restrict)
+  answerKeyVersionId String                   @db.Uuid
+  answerKeyVersion   QuestionAnswerKeyVersion @relation(fields: [answerKeyVersionId], references: [id], onDelete: Restrict)
   sessionKey        String          @db.VarChar(80)
   sectionKey        String          @db.VarChar(80)
   sequence          Int
@@ -874,6 +877,7 @@ model TestFormQuestion {
   createdAt         DateTime        @default(now())
 
   @@unique([testFormId, questionVersionId])
+  @@index([answerKeyVersionId])
   @@index([testFormId, sessionKey, sectionKey, sequence])
 }
 

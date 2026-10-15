@@ -18,7 +18,7 @@ async function signIn(page: Page, email: string) {
 test('authenticated student completes persistent CBT lifecycle and safely resumes it', async ({ page }) => {
   await signIn(page, fixture.studentA.email);
   await page.goto('/attempts');
-  const card = page.getByRole('article').filter({ hasText: 'PERSISTENT' });
+  const card = page.getByRole('article').filter({ hasText: 'PERSISTENT' }).first();
   await expect(card).toBeVisible();
   page.once('dialog', (dialog) => void dialog.accept());
   await card.getByRole('button', { name: 'Read instructions & start' }).click();
@@ -74,7 +74,7 @@ test('student ownership prevents cross-account attempt access', async ({ browser
 test('expired attempt rejects answer acknowledgement after the server deadline', async ({ page }) => {
   await signIn(page, fixture.studentA.email);
   await page.goto('/attempts');
-  const card = page.getByRole('article').filter({ hasText: 'EXPIRED' });
+  const card = page.getByRole('article').filter({ hasText: 'EXPIRED' }).first();
   await expect(card).toBeVisible();
   page.once('dialog', (dialog) => void dialog.accept());
   await card.getByRole('button', { name: 'Read instructions & start' }).click();
@@ -83,4 +83,6 @@ test('expired attempt rejects answer acknowledgement after the server deadline',
   await page.locator('input[type="radio"]').nth(0).check();
   await page.getByRole('button', { name: 'Save & Next' }).click();
   await expect(page.getByText('Attempt session has expired')).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole('heading', { name: 'Performance summary' })).toBeVisible();
 });

@@ -16,8 +16,8 @@ export class LearningService {
   /** Rebuilds one attempt's durable learning projection inside the scoring transaction. */
   async rebuildForAttempt(tx: Prisma.TransactionClient, accountId: string, attemptId: string) {
     const attempt = await tx.attempt.findFirst({
-      where: { id: attemptId, accountId, status: AttemptStatus.SUBMITTED },
-      include: { answerEvents: { orderBy: { sequence: 'asc' } }, testForm: { include: { questions: { orderBy: { sequence: 'asc' }, include: { questionVersion: { include: { answerKeys: { orderBy: { version: 'desc' }, take: 1 }, mappings: true } } } } } } },
+      where: { id: attemptId, accountId, status: { in: [AttemptStatus.SUBMITTED, AttemptStatus.EXPIRED] } },
+      include: { answerEvents: { orderBy: { sequence: 'asc' } }, testForm: { include: { questions: { orderBy: { sequence: 'asc' }, include: { answerKeyVersion: true, questionVersion: { include: { mappings: true } } } } } } },
     });
     if (!attempt) throw new NotFoundException('Submitted attempt not found');
 
@@ -33,7 +33,7 @@ export class LearningService {
     for (const question of attempt.testForm.questions) {
       const answer = latest.get(question.questionVersionId);
       const selected = answer?.selectedOptionIds ?? [];
-      const correct = question.questionVersion.answerKeys[0] ? strings(question.questionVersion.answerKeys[0].correctAnswers) : [];
+      const correct = question.answerKeyVersion ? strings(question.answerKeyVersion.correctAnswers) : [];
       const outcome: LearningOutcome = selected.length === 0 ? 'UNATTEMPTED' : equalSet(selected, correct) ? 'CORRECT' : 'INCORRECT';
       const topicIds = question.questionVersion.mappings.map((mapping) => mapping.syllabusTopicId);
       const reasonCodes = [
@@ -55,11 +55,11 @@ export class LearningService {
   }
 
   async summary(accountId: string, attemptId: string) {
-    const attempt = await this.database.attempt.findFirst({ where: { id: attemptId, accountId, status: AttemptStatus.SUBMITTED, result: { isNot: null } }, include: { answerEvents: { orderBy: { sequence: 'asc' } }, testForm: { include: { questions: { orderBy: { sequence: 'asc' }, include: { questionVersion: { include: { answerKeys: { orderBy: { version: 'desc' }, take: 1 }, mappings: true } } } } } } } });
+    const attempt = await this.database.attempt.findFirst({ where: { id: attemptId, accountId, status: { in: [AttemptStatus.SUBMITTED, AttemptStatus.EXPIRED] }, result: { isNot: null } }, include: { answerEvents: { orderBy: { sequence: 'asc' } }, testForm: { include: { questions: { orderBy: { sequence: 'asc' }, include: { answerKeyVersion: true, questionVersion: { include: { mappings: true } } } } } } } });
     if (!attempt) throw new NotFoundException('Submitted result not found');
     const latest = new Map<string, string[]>();
     for (const event of attempt.answerEvents) latest.set(event.questionVersionId, strings(event.selectedOptionIds));
-    const answers: AnalyticsAnswer[] = attempt.testForm.questions.map((question) => { const selected = latest.get(question.questionVersionId) ?? []; const correct = question.questionVersion.answerKeys[0] ? strings(question.questionVersion.answerKeys[0].correctAnswers) : []; const outcome = selected.length === 0 ? 'UNATTEMPTED' : equalSet(selected, correct) ? 'CORRECT' : 'INCORRECT'; return { questionVersionId: question.questionVersionId, paperKey: question.sessionKey, sectionKey: question.sectionKey, topicIds: question.questionVersion.mappings.map((mapping) => mapping.syllabusTopicId), outcome }; });
+    const answers: AnalyticsAnswer[] = attempt.testForm.questions.map((question) => { const selected = latest.get(question.questionVersionId) ?? []; const correct = question.answerKeyVersion ? strings(question.answerKeyVersion.correctAnswers) : []; const outcome = selected.length === 0 ? 'UNATTEMPTED' : equalSet(selected, correct) ? 'CORRECT' : 'INCORRECT'; return { questionVersionId: question.questionVersionId, paperKey: question.sessionKey, sectionKey: question.sectionKey, topicIds: question.questionVersion.mappings.map((mapping) => mapping.syllabusTopicId), outcome }; });
     const durableEvidence = await this.database.learningEvidence.findMany({ where: { accountId, attemptId }, orderBy: { createdAt: 'asc' }, select: { id: true, questionVersionId: true, outcome: true, topicIds: true, eligible: true, reasonCodes: true, createdAt: true } });
     const recommendations = await this.database.learningRecommendation.findMany({ where: { accountId, attemptId }, orderBy: [{ priority: 'asc' }, { createdAt: 'asc' }], select: { key: true, reason: true, recommendation: true, priority: true, sourceEvidenceIds: true } });
     return { attemptId, source: 'PERSISTED_SUBMITTED_ATTEMPT', analytics: calculateLearningAnalytics(answers), durableEvidence, recommendations };

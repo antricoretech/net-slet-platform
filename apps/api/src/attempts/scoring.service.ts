@@ -2,6 +2,7 @@ import { ConflictException, Injectable, NotFoundException, Optional } from '@nes
 import { scoreConfiguredAttempt, type AnswerSelectionEvent, type ConfiguredScoringResult, type PolicyScoringQuestion, type ScoringPolicyConfig } from '@net-slet/exam-rules';
 import { AttemptStatus, AuditEventType, Prisma, ResultReleaseStatus } from '../generated/prisma/client';
 import { PrismaService } from '../database/prisma.service';
+import { AttemptsService } from './attempts.service';
 import { LearningService } from './learning.service';
 
 type JsonRecord = Record<string, unknown>;
@@ -41,15 +42,16 @@ function correctOptions(value: unknown): string[] {
 
 @Injectable()
 export class ScoringService {
-  constructor(private readonly database: PrismaService, @Optional() private readonly learning?: LearningService) {}
+  constructor(private readonly database: PrismaService, @Optional() private readonly learning?: LearningService, @Optional() private readonly attempts?: AttemptsService) {}
 
   async score(accountId: string, attemptId: string, transaction?: Prisma.TransactionClient) {
     try {
       const work = async (tx: Prisma.TransactionClient) => {
-        const attempt = await tx.attempt.findFirst({ where: { id: attemptId, accountId }, include: { result: { include: { scoreRun: true } }, answers: true, answerEvents: { orderBy: { sequence: 'asc' } }, testForm: { include: { questions: { orderBy: { sequence: 'asc' }, include: { questionVersion: { include: { answerKeys: { orderBy: { version: 'desc' }, take: 1 } } } } }, patternVersion: true } } } });
+        await this.lockAttempt(tx, attemptId);
+        const attempt = await tx.attempt.findFirst({ where: { id: attemptId, accountId }, include: { result: { include: { scoreRun: true } }, answers: true, answerEvents: { orderBy: { sequence: 'asc' } }, testForm: { include: { questions: { orderBy: { sequence: 'asc' }, include: { answerKeyVersion: true } }, patternVersion: true } } } });
         if (!attempt) throw new NotFoundException('Attempt not found');
         if (attempt.result) return this.toPublicResult(attempt.id, attempt.result);
-        if (attempt.status !== AttemptStatus.SUBMITTED) throw new ConflictException('Only a submitted attempt can be scored');
+        if (attempt.status !== AttemptStatus.SUBMITTED && attempt.status !== AttemptStatus.EXPIRED) throw new ConflictException('Only a terminal attempt can be scored');
         const policy = parsePolicy(attempt.testForm.snapshot);
         const sections = record(attempt.testForm.snapshot).sessions;
         const sectionPolicy = (sessionKey: string, sectionKey: string): string => {
@@ -60,7 +62,7 @@ export class ScoringService {
           return section.answerPolicy;
         };
         const questions: PolicyScoringQuestion[] = attempt.testForm.questions.map((item) => {
-          const key = item.questionVersion.answerKeys[0];
+          const key = item.answerKeyVersion;
           if (!key) throw new ConflictException(`Approved answer key is missing for ${item.questionVersionId}`);
           const questionSnapshot = record(item.snapshot);
           const options = Array.isArray(questionSnapshot.options) ? questionSnapshot.options.map(record).map((option) => option.id).filter((id): id is string => typeof id === 'string') : [];
@@ -89,11 +91,16 @@ export class ScoringService {
 
   async finalize(accountId: string, attemptId: string) {
     return this.database.$transaction(async (tx) => {
+      await this.lockAttempt(tx, attemptId);
       const attempt = await tx.attempt.findFirst({ where: { id: attemptId, accountId }, include: { sessions: true } });
       if (!attempt) throw new NotFoundException('Attempt not found');
-      if (attempt.status !== AttemptStatus.SUBMITTED) {
-        if (attempt.sessions.some((session) => session.status !== 'SUBMITTED')) throw new ConflictException('All attempt sessions must be submitted first');
-        await tx.attempt.update({ where: { id: attempt.id }, data: { status: AttemptStatus.SUBMITTED, submittedAt: new Date(), revision: { increment: 1 } } });
+      if (this.attempts) await this.attempts.expireDueSessions(tx, attempt, accountId, new Date());
+      const current = await tx.attempt.findFirst({ where: { id: attemptId, accountId }, include: { sessions: true } });
+      if (!current) throw new NotFoundException('Attempt not found');
+      if (current.status !== AttemptStatus.SUBMITTED && current.status !== AttemptStatus.EXPIRED) {
+        if (current.sessions.some((session) => session.status !== 'SUBMITTED' && session.status !== 'EXPIRED')) throw new ConflictException('All attempt sessions must be submitted or expired first');
+        const hasExpiredSession = current.sessions.some((session) => session.status === 'EXPIRED');
+        await tx.attempt.update({ where: { id: current.id }, data: { status: hasExpiredSession ? AttemptStatus.EXPIRED : AttemptStatus.SUBMITTED, submittedAt: new Date(), ...(hasExpiredSession ? { expiredAt: new Date() } : {}), revision: { increment: 1 } } });
         await tx.auditEvent.create({ data: { type: AuditEventType.ATTEMPT_SUBMITTED, accountId, attemptId: attempt.id, metadata: { finalization: 'ATOMIC_WITH_SCORE' } } });
       }
       return this.score(accountId, attemptId, tx);
@@ -112,4 +119,8 @@ export class ScoringService {
   }
 
   private isUniqueError(error: unknown): boolean { return Boolean(error && typeof error === 'object' && 'code' in error && (error as { code?: string }).code === 'P2002'); }
+
+  private async lockAttempt(tx: Prisma.TransactionClient, attemptId: string): Promise<void> {
+    if (typeof tx.$executeRaw === 'function') await tx.$executeRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${attemptId}, 0))`);
+  }
 }

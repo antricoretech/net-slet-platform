@@ -38,7 +38,7 @@ export default async function globalSetup(_config: FullConfig) {
   const organizerId = uuid();
   const examinationId = uuid();
   const cycleId = uuid();
-  const entities: Array<{ formId: string; patternId: string; questionId: string; versionId: string; optionA: string; optionB: string; formQuestionId: string; subjectCode: string; durationSeconds: number; syllabusVersionId: string; subjectUnitId: string; topicId: string }> = [];
+  const entities: Array<{ formId: string; patternId: string; questionId: string; versionId: string; answerKeyVersionId: string; optionA: string; optionB: string; formQuestionId: string; subjectCode: string; durationSeconds: number; syllabusVersionId: string; subjectUnitId: string; topicId: string }> = [];
 
   await client.query('INSERT INTO "ExamOrganizer" (id, code, name, "updatedAt") VALUES ($1, $2, $3, CURRENT_TIMESTAMP)', [organizerId, `STAGE_B_E2E_ORG_${suffix}`, 'Stage B E2E fixture organizer']);
   await client.query('INSERT INTO "Examination" (id, code, name, family, "organizerId", "updatedAt") VALUES ($1, $2, $3, \'UGC_NET\', $4, CURRENT_TIMESTAMP)', [examinationId, `STAGE_B_E2E_${suffix}`, 'Stage B E2E fixture examination', organizerId]);
@@ -52,21 +52,21 @@ export default async function globalSetup(_config: FullConfig) {
     await client.query('INSERT INTO "SyllabusTopic" (id, "subjectUnitId", code, title, sequence, "updatedAt") VALUES ($1, $2, \'TOPIC-1\', \'E2E topic\', 0, CURRENT_TIMESTAMP)', [topicId, subjectUnitId]);
     const questionIds: string[] = []; const questions: Array<Record<string, unknown>> = [];
     for (let index = 0; index < questionCount; index += 1) {
-      const questionId = uuid(); const versionId = uuid(); const optionA = uuid(); const optionB = uuid(); const formQuestionId = uuid();
+      const questionId = uuid(); const versionId = uuid(); const answerKeyVersionId = uuid(); const optionA = uuid(); const optionB = uuid(); const formQuestionId = uuid();
       questionIds.push(questionId);
       const question = { questionVersionId: versionId, type: 'SINGLE_CHOICE', prompt: `${subjectCode} fixture question ${index + 1}`, options: [{ id: optionA, label: 'Correct option' }, { id: optionB, label: 'Other option' }], languageCode: 'en' };
       questions.push(question);
       await client.query('INSERT INTO "Question" (id, "examCycleId", "subjectCode", "createdById", "updatedAt") VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)', [questionId, cycleId, subjectCode, studentA.id]);
       await client.query('INSERT INTO "QuestionVersion" (id, "questionId", version, status, type, prompt, "authoredById", "updatedAt") VALUES ($1, $2, 1, \'DRAFT\', \'SINGLE_CHOICE\', $3::jsonb, $4, CURRENT_TIMESTAMP)', [versionId, questionId, JSON.stringify({ text: question.prompt }), studentA.id]);
       await client.query('INSERT INTO "QuestionOption" (id, "questionVersionId", "optionKey", "optionText", sequence, "updatedAt") VALUES ($1, $2, \'A\', $3::jsonb, 0, CURRENT_TIMESTAMP), ($4, $2, \'B\', $5::jsonb, 1, CURRENT_TIMESTAMP)', [optionA, versionId, JSON.stringify({ text: 'Correct option' }), optionB, JSON.stringify({ text: 'Other option' })]);
-      await client.query('INSERT INTO "QuestionAnswerKeyVersion" (id, "questionVersionId", version, "correctAnswers", "createdById") VALUES ($1, $2, 1, $3::jsonb, $4)', [uuid(), versionId, JSON.stringify([optionA]), studentA.id]);
+      await client.query('INSERT INTO "QuestionAnswerKeyVersion" (id, "questionVersionId", version, "correctAnswers", "createdById") VALUES ($1, $2, 1, $3::jsonb, $4)', [answerKeyVersionId, versionId, JSON.stringify([optionA]), studentA.id]);
       await client.query('INSERT INTO "QuestionSyllabusMapping" (id, "questionVersionId", "syllabusTopicId") VALUES ($1, $2, $3)', [uuid(), versionId, topicId]);
-      entities.push({ formId, patternId, questionId, versionId, optionA, optionB, formQuestionId, subjectCode, durationSeconds, syllabusVersionId, subjectUnitId, topicId });
+      entities.push({ formId, patternId, questionId, versionId, answerKeyVersionId, optionA, optionB, formQuestionId, subjectCode, durationSeconds, syllabusVersionId, subjectUnitId, topicId });
     }
     const snapshot = { snapshotId: formId, snapshotHash: `stage-b-e2e-${subjectCode.toLowerCase()}`, generatedAt: new Date().toISOString(), seed: 'stage-b-e2e', blueprint: { examCode: `STAGE_B_E2E_${suffix}`, cycleCode: `E2E_${suffix}`, subjectCode, sections: [{ key: 'part-a', sequence: 0, questionVersionIds: questions.map((question) => question.questionVersionId) }] }, sessions: [{ key: 'session-1', sequence: 0, timingPolicy: 'CONTINUOUS', durationSeconds, sections: [{ key: 'part-a', answerPolicy: 'SINGLE_SELECT' }] }], sections: [{ key: 'part-a', sequence: 0, questions }], scoringPolicy: { policyId: 'STAGE-B-E2E', version: '1', provenance: 'RESEARCH_ONLY', positiveMarksScaled: 100, wrongMarksScaled: 25, unattemptedMarksScaled: 0, scale: 100, excessAttemptPolicy: 'ALL_RESPONSES_COUNT', countsUnansweredAsAttempt: false }, publication: { qaOnly: true } };
     await client.query('INSERT INTO "ExamPatternVersion" (id, "examCycleId", "subjectCode", version, status, rules, "ruleHash", "publishedAt") VALUES ($1, $2, $3, 1, \'PUBLISHED\', $4::jsonb, \'stage-b-e2e\', CURRENT_TIMESTAMP)', [patternId, cycleId, subjectCode, JSON.stringify({ sessions: [] })]);
     await client.query('INSERT INTO "TestForm" (id, "examCycleId", "patternVersionId", "subjectCode", version, status, snapshot, "snapshotHash", "createdById", "publishedAt", "updatedAt") VALUES ($1, $2, $3, $4, 1, \'PUBLISHED\', $5::jsonb, $6, $7, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)', [formId, cycleId, patternId, subjectCode, JSON.stringify(snapshot), snapshot.snapshotHash, studentA.id]);
-    for (const [index, question] of questions.entries()) await client.query('INSERT INTO "TestFormQuestion" (id, "testFormId", "questionVersionId", "sessionKey", "sectionKey", sequence, snapshot) VALUES ($1, $2, $3, \'session-1\', \'part-a\', $4, $5::jsonb)', [uuid(), formId, question.questionVersionId, index, JSON.stringify(question)]);
+    for (const [index, question] of questions.entries()) await client.query('INSERT INTO "TestFormQuestion" (id, "testFormId", "questionVersionId", "answerKeyVersionId", "sessionKey", "sectionKey", sequence, snapshot) VALUES ($1, $2, $3, $4, \'session-1\', \'part-a\', $5, $6::jsonb)', [uuid(), formId, question.questionVersionId, entities.find((entity) => entity.formId === formId && entity.versionId === question.questionVersionId)?.answerKeyVersionId, index, JSON.stringify(question)]);
   }
   await client.end();
   fs.mkdirSync(path.dirname(outputPath), { recursive: true });

@@ -15,7 +15,7 @@ jobs:
           POSTGRES_DB: netslet_stageb_ci
         ports: ['5432:5432']
         options: >-
-          --health-cmd "pg_isready -U postgres -d netslet_dev"
+          --health-cmd "pg_isready -U postgres -d netslet_stageb_ci"
           --health-interval 5s
           --health-timeout 3s
           --health-retries 20

@@ -108,12 +108,14 @@ export class AttemptsService {
   }
 
   async state(accountId: string, attemptId: string) {
+    await this.synchronizeExpiry(accountId, attemptId);
     const attempt = await this.database.attempt.findFirst({ where: { id: attemptId, accountId }, include: { sessions: { orderBy: { sequence: 'asc' } }, answers: true, testForm: true } });
     if (!attempt) throw new NotFoundException('Attempt not found');
     return this.toState(attempt, parseSnapshot(attempt.testForm.snapshot));
   }
 
   async form(accountId: string, attemptId: string) {
+    await this.synchronizeExpiry(accountId, attemptId);
     const attempt = await this.database.attempt.findFirst({ where: { id: attemptId, accountId }, include: { sessions: { orderBy: { sequence: 'asc' } }, answers: true, testForm: true } });
     if (!attempt) throw new NotFoundException('Attempt not found');
     const snapshot = parseSnapshot(attempt.testForm.snapshot);
@@ -134,6 +136,10 @@ export class AttemptsService {
         if (prior.some((item) => item.status !== AttemptSessionStatus.SUBMITTED)) throw new ConflictException('Previous session must be submitted first');
       }
       if (session.status !== AttemptSessionStatus.READY && session.status !== AttemptSessionStatus.IN_PROGRESS) throw new ConflictException('Attempt session is not available');
+      if (session.deadlineAt && now >= session.deadlineAt) {
+        await this.expireDueSession(tx, attempt.id, session.id, accountId, now);
+        throw new ConflictException('Attempt session has expired');
+      }
       const startedAt = session.startedAt ?? now;
       const deadlineAt = session.deadlineAt ?? new Date(startedAt.getTime() + session.durationSeconds * 1000);
       const updated = await tx.attempt.update({ where: { id: attempt.id }, data: { status: AttemptStatus.IN_PROGRESS, startedAt: attempt.startedAt ?? startedAt, revision: { increment: 1 }, sessions: { update: { where: { id: session.id }, data: { status: AttemptSessionStatus.IN_PROGRESS, startedAt, deadlineAt } } } }, include: { sessions: { orderBy: { sequence: 'asc' } }, answers: true, testForm: true } });
@@ -150,7 +156,14 @@ export class AttemptsService {
       if (attempt.status !== AttemptStatus.IN_PROGRESS) throw new ConflictException('Attempt is not active');
       const activeSession = attempt.sessions.find((session) => session.status === AttemptSessionStatus.IN_PROGRESS);
       if (!activeSession) throw new ConflictException('No active attempt session');
-      if (activeSession.deadlineAt && new Date() >= activeSession.deadlineAt) throw new ConflictException('Attempt session has expired');
+      const now = new Date();
+      if (activeSession.deadlineAt) {
+        const deadlineGuard = await tx.attemptSession.updateMany({ where: { id: activeSession.id, attemptId: attempt.id, status: AttemptSessionStatus.IN_PROGRESS, deadlineAt: { gt: now } }, data: { updatedAt: now } });
+        if (deadlineGuard.count !== 1) {
+          await this.expireDueSession(tx, attempt.id, activeSession.id, accountId, now);
+          throw new ConflictException('Attempt session has expired');
+        }
+      }
       const question = attempt.testForm.questions.find((item) => item.questionVersionId === questionVersionId && item.sessionKey === activeSession.key);
       if (!question) throw new BadRequestException('Question is not part of the active session');
       const snapshotQuestion = jsonObject(question.snapshot) as unknown as AttemptSnapshotQuestion;
@@ -182,7 +195,16 @@ export class AttemptsService {
       const session = attempt.sessions.find((item) => item.id === sessionId);
       if (!session) throw new NotFoundException('Attempt session not found');
       if (session.status !== AttemptSessionStatus.IN_PROGRESS) throw new ConflictException('Only an active session can be submitted');
-      if (session.deadlineAt && new Date() >= session.deadlineAt) throw new ConflictException('Attempt session has expired');
+      const now = new Date();
+      if (session.deadlineAt) {
+        const deadlineGuard = await tx.attemptSession.updateMany({ where: { id: session.id, attemptId: attempt.id, status: AttemptSessionStatus.IN_PROGRESS, deadlineAt: { gt: now } }, data: { updatedAt: now } });
+        if (deadlineGuard.count !== 1) {
+          await this.expireDueSession(tx, attempt.id, session.id, accountId, now);
+          const refreshed = await tx.attempt.findFirst({ where: { id: attempt.id, accountId }, include: { sessions: { orderBy: { sequence: 'asc' } }, answers: true, testForm: true } });
+          if (!refreshed) throw new NotFoundException('Attempt not found');
+          return this.toState(refreshed, parseSnapshot(refreshed.testForm.snapshot));
+        }
+      }
       const updated = await tx.attempt.update({ where: { id: attempt.id }, data: { revision: { increment: 1 }, sessions: { update: { where: { id: session.id }, data: { status: AttemptSessionStatus.SUBMITTED, submittedAt: new Date() } } } }, include: { sessions: { orderBy: { sequence: 'asc' } }, answers: true, testForm: true } });
       await tx.auditEvent.create({ data: { type: AuditEventType.SESSION_SUBMITTED, accountId, attemptId, metadata: { sessionId } } });
       return this.toState(updated, parseSnapshot(updated.testForm.snapshot));
@@ -193,9 +215,13 @@ export class AttemptsService {
     return this.database.$transaction(async (tx) => {
       const attempt = await tx.attempt.findFirst({ where: { id: attemptId, accountId }, include: { sessions: { orderBy: { sequence: 'asc' } }, answers: true, testForm: true } });
       if (!attempt) throw new NotFoundException('Attempt not found');
-      if (attempt.status === AttemptStatus.SUBMITTED) return this.toState(attempt, parseSnapshot(attempt.testForm.snapshot));
-      if (attempt.sessions.some((session) => session.status !== AttemptSessionStatus.SUBMITTED)) throw new ConflictException('All attempt sessions must be submitted first');
-      const updated = await tx.attempt.update({ where: { id: attempt.id }, data: { status: AttemptStatus.SUBMITTED, submittedAt: new Date(), revision: { increment: 1 } }, include: { sessions: { orderBy: { sequence: 'asc' } }, answers: true, testForm: true } });
+      const now = new Date();
+      await this.expireDueSessions(tx, attempt, accountId, now);
+      const current = await tx.attempt.findFirst({ where: { id: attemptId, accountId }, include: { sessions: { orderBy: { sequence: 'asc' } }, answers: true, testForm: true } });
+      if (!current) throw new NotFoundException('Attempt not found');
+      if (current.status === AttemptStatus.SUBMITTED || current.status === AttemptStatus.EXPIRED) return this.toState(current, parseSnapshot(current.testForm.snapshot));
+      if (current.sessions.some((session) => session.status !== AttemptSessionStatus.SUBMITTED)) throw new ConflictException('All attempt sessions must be submitted first');
+      const updated = await tx.attempt.update({ where: { id: current.id }, data: { status: AttemptStatus.SUBMITTED, submittedAt: now, revision: { increment: 1 } }, include: { sessions: { orderBy: { sequence: 'asc' } }, answers: true, testForm: true } });
       await tx.auditEvent.create({ data: { type: AuditEventType.ATTEMPT_SUBMITTED, accountId, attemptId, metadata: { snapshotHash: updated.testForm.snapshotHash } } });
       return this.toState(updated, parseSnapshot(updated.testForm.snapshot));
     });
@@ -223,6 +249,33 @@ export class AttemptsService {
     const section = session?.sections.find((item) => item.key === sectionKey);
     if (!section?.answerPolicy) throw new BadRequestException('Published test form is missing an answer policy');
     return section.answerPolicy;
+  }
+
+  private async synchronizeExpiry(accountId: string, attemptId: string): Promise<void> {
+    await this.database.$transaction(async (tx) => {
+      const attempt = await tx.attempt.findFirst({ where: { id: attemptId, accountId }, include: { sessions: true } });
+      if (!attempt || (attempt.status !== AttemptStatus.READY && attempt.status !== AttemptStatus.IN_PROGRESS)) return;
+      await this.expireDueSessions(tx, attempt, accountId, new Date());
+    });
+  }
+
+  async expireDueSessions(tx: Prisma.TransactionClient, attempt: { id: string; status: AttemptStatus; sessions: Array<{ id: string; status: AttemptSessionStatus; deadlineAt: Date | null }> }, accountId: string, now: Date): Promise<void> {
+    for (const session of attempt.sessions) {
+      if (session.status === AttemptSessionStatus.IN_PROGRESS && session.deadlineAt && now >= session.deadlineAt) await this.expireDueSession(tx, attempt.id, session.id, accountId, now);
+    }
+  }
+
+  private async expireDueSession(tx: Prisma.TransactionClient, attemptId: string, sessionId: string, accountId: string, now: Date): Promise<void> {
+    const expired = await tx.attemptSession.updateMany({ where: { id: sessionId, attemptId, status: AttemptSessionStatus.IN_PROGRESS, deadlineAt: { lte: now } }, data: { status: AttemptSessionStatus.EXPIRED, expiredAt: now } });
+    if (expired.count !== 1) return;
+    const sessions = await tx.attemptSession.findMany({ where: { attemptId } });
+    const terminal = sessions.length > 0 && sessions.every((session) => session.status === AttemptSessionStatus.SUBMITTED || session.status === AttemptSessionStatus.EXPIRED);
+    if (terminal) {
+      const updated = await tx.attempt.updateMany({ where: { id: attemptId, status: { in: [AttemptStatus.READY, AttemptStatus.IN_PROGRESS] } }, data: { status: AttemptStatus.EXPIRED, expiredAt: now, revision: { increment: 1 } } });
+      if (updated.count === 1) await tx.auditEvent.create({ data: { type: AuditEventType.ATTEMPT_EXPIRED, accountId, attemptId, metadata: { sessionId, expiredAt: now.toISOString() } } });
+    } else {
+      await tx.attempt.updateMany({ where: { id: attemptId, status: AttemptStatus.IN_PROGRESS }, data: { revision: { increment: 1 } } });
+    }
   }
 
   private toStartResponse(attempt: { id: string; accountId: string; status: AttemptStatus; revision: number; sessions: Array<{ id: string; key: string; status: AttemptSessionStatus; timingPolicy: string; durationSeconds: number; deadlineAt: Date | null; sequence: number }>; answers: Array<{ questionVersionId: string; selectedOptionIds: Prisma.JsonValue; markedForReview: boolean }>; testForm: { snapshot: Prisma.JsonValue } }, snapshot: StoredSnapshot) {

@@ -40,7 +40,9 @@ export function CbtAttemptPlayer({ attemptId }: { attemptId: string }) {
       setAnswers(Object.fromEntries(nextResponse.state.answers.map((answer) => [answer.questionVersionId, answer.selectedOptionIds])));
       setMarked(Object.fromEntries(nextResponse.state.answers.filter((answer) => answer.markedForReview).map((answer) => [answer.questionVersionId, true])));
       if (response.state.status === 'SUBMITTED' || response.state.status === 'EXPIRED') {
-        setResult(await apiFetch<ResultResponse>(`/attempts/${attemptId}/result`));
+        let finalResult: ResultResponse;
+        try { finalResult = await apiFetch<ResultResponse>(`/attempts/${attemptId}/result`); } catch { finalResult = await apiFetch<ResultResponse>(`/attempts/${attemptId}/submit`, { method: 'POST' }); }
+        setResult(finalResult);
         try { setLearning(await apiFetch<LearningResponse>(`/attempts/${attemptId}/learning-summary`)); } catch { setLearning(undefined); }
       }
     } catch (caught) { setError(caught instanceof Error ? caught.message : 'The attempt could not be loaded.'); }

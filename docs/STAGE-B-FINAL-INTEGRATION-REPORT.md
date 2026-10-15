@@ -22,8 +22,9 @@ The forward-only migrations are:
 1. `20261012000000_stage_a_consolidated_baseline`
 2. `20261015090000_cbt_attempt_persistence_foundation`
 3. `20261015100000_learning_evidence_persistence`
+4. `20261015110000_attempt_expiry_and_scoring_key_pin`
 
-Native Prisma 7.10 `migrate status` reports the isolated database `netslet_stageb_prisma` on `127.0.0.1:55434` as up to date. No active `netslet_dev` connection, migration ledger or volume was used. The learning migration is mirrored under `recovery/stage-a` for the recovery candidate path.
+Native Prisma 7.10 `migrate status` reports the isolated database `netslet_stageb_prisma` on `127.0.0.1:55434` as up to date with four migrations. No active `netslet_dev` connection, migration ledger or volume was used. The Stage B migrations are mirrored under `recovery/stage-a` for the recovery candidate path.
 
 ## Validation record
 
@@ -34,9 +35,10 @@ Native Prisma 7.10 `migrate status` reports the isolated database `netslet_stage
 | `pnpm lint` | PASS |
 | `pnpm build` | PASS — 19 Next.js routes |
 | `pnpm db:generate` | PASS — Prisma 7.10.0 |
-| Native Prisma migration status | PASS — 3 migrations, up to date |
+| Native Prisma migration status | PASS — 4 migrations, up to date |
 | `STAGE_B_REHEARSAL=1 pnpm test:integration` | PASS — normalized tables, migrations, audit triggers and publication immutability |
 | CBT HTTP integration | PASS — durable answer, atomic submit/score, deterministic result and durable learning projection |
+| Authenticated expiry and refresh E2E | PASS — late answer rejected, expiry terminalized and scored, refresh returned the persisted result |
 | `pnpm test:e2e -- tests/e2e/stage-b-cbt.spec.ts` | PASS — 3 authenticated browser tests against API port 4400 |
 | [GitHub Actions CI run 38767743972](https://github.com/antricoretech/net-slet-platform/actions/runs/38767743972) | PASS — canonical isolated migrations, generation, validation, typecheck, unit tests, lint, build, database integration, Stage B/Sprint 1 browser journeys and Sprint 2 acceptance |
 | Protected cold-start summary | Preserved byte-for-byte; SHA-256 `14899D4A4FD428CE4DDFC9923B0AC702A4394E43F0FDD4A1620BB0C60E2CA9D2` |
@@ -45,6 +47,8 @@ Native Prisma 7.10 `migrate status` reports the isolated database `netslet_stage
 
 - Forms used by the automated rehearsal are explicitly QA-only synthetic fixtures. No official examination pattern or content has been promoted.
 - Result explanations remain withheld while the persisted result is `PENDING`.
+- Aggregate score disclosure while `PENDING` is intentional and documented in [STAGE-B-RESULT-RELEASE-POLICY.md](STAGE-B-RESULT-RELEASE-POLICY.md); explanations and answer keys remain withheld.
+- Each form question pins an immutable approved answer-key version; scoring and learning projections read that pinned reference even when a later key revision exists.
 - Redis remains coordination/infrastructure; PostgreSQL remains authoritative for acknowledged answers, deadlines, scoring and learning evidence.
 - The historical recovery CI run, release-artifact review, owner approvals, active-database reconciliation and production deployment remain separate gates. This increment does not execute Stage B reconciliation.
 - The recovery-candidate CI workflow was not changed or dispatched. The open [Stage B integration pull request](https://github.com/antricoretech/net-slet-platform/pull/1) ran the repository CI workflow successfully against commit `d7ad8bdcde7a005ca519879f868bbe6243999dd1`; the run produced only platform deprecation/advisory annotations for Node 20 action versions and the future Ubuntu image change.

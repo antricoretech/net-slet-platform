@@ -11,7 +11,7 @@ await client.connect();
 let accountId;
 let sessionCookie;
 let attemptId;
-const ids = Object.fromEntries(['organizer', 'examination', 'cycle', 'pattern', 'question', 'version', 'optionA', 'optionB', 'answerKey', 'form', 'formQuestion'].map((name) => [name, crypto.randomUUID()]));
+const ids = Object.fromEntries(['organizer', 'examination', 'cycle', 'pattern', 'question', 'version', 'optionA', 'optionB', 'answerKey', 'laterAnswerKey', 'form', 'formQuestion'].map((name) => [name, crypto.randomUUID()]));
 
 async function request(path, init = {}) {
   const headers = { 'content-type': 'application/json', ...(sessionCookie ? { cookie: sessionCookie } : {}), ...(init.headers ?? {}) };
@@ -51,7 +51,8 @@ try {
   await client.query('INSERT INTO "QuestionOption" (id, "questionVersionId", "optionKey", "optionText", sequence, "updatedAt") VALUES ($1, $2, \'A\', $3::jsonb, 0, CURRENT_TIMESTAMP), ($4, $2, \'B\', $5::jsonb, 1, CURRENT_TIMESTAMP)', [ids.optionA, ids.version, JSON.stringify({ text: 'A' }), ids.optionB, JSON.stringify({ text: 'B' })]);
   await client.query('INSERT INTO "QuestionAnswerKeyVersion" (id, "questionVersionId", version, "correctAnswers", "createdById") VALUES ($1, $2, 1, $3::jsonb, $4)', [ids.answerKey, ids.version, JSON.stringify(['a']), accountId]);
   await client.query('INSERT INTO "TestForm" (id, "examCycleId", "patternVersionId", "subjectCode", version, status, snapshot, "snapshotHash", "createdById", "publishedAt", "updatedAt") VALUES ($1, $2, $3, \'INTEGRATION\', 1, \'PUBLISHED\', $4::jsonb, \'stage-b-http-fixture\', $5, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)', [ids.form, ids.cycle, ids.pattern, JSON.stringify(snapshot), accountId]);
-  await client.query('INSERT INTO "TestFormQuestion" (id, "testFormId", "questionVersionId", "sessionKey", "sectionKey", sequence, snapshot) VALUES ($1, $2, $3, \'session-1\', \'part-a\', 0, $4::jsonb)', [ids.formQuestion, ids.form, ids.version, JSON.stringify(snapshot.sections[0].questions[0])]);
+  await client.query('INSERT INTO "TestFormQuestion" (id, "testFormId", "questionVersionId", "answerKeyVersionId", "sessionKey", "sectionKey", sequence, snapshot) VALUES ($1, $2, $3, $4, \'session-1\', \'part-a\', 0, $5::jsonb)', [ids.formQuestion, ids.form, ids.version, ids.answerKey, JSON.stringify(snapshot.sections[0].questions[0])]);
+  await client.query('INSERT INTO "QuestionAnswerKeyVersion" (id, "questionVersionId", version, "correctAnswers", "createdById") VALUES ($1, $2, 2, $3::jsonb, $4)', [ids.laterAnswerKey, ids.version, JSON.stringify(['b']), accountId]);
 
   const started = await request('/attempts', { method: 'POST', body: JSON.stringify({ testFormId: ids.form, idempotencyKey: 'stage-b-http-start' }) });
   attemptId = started.attemptId;
@@ -62,11 +63,12 @@ try {
   await request(`/attempts/${attemptId}/sessions/${sessionId}/submit`, { method: 'POST' });
   const result = await request(`/attempts/${attemptId}/submit`, { method: 'POST' });
   const duplicate = await request(`/attempts/${attemptId}/submit`, { method: 'POST' });
+  const concurrent = await Promise.all([request(`/attempts/${attemptId}/submit`, { method: 'POST' }), request(`/attempts/${attemptId}/submit`, { method: 'POST' })]);
   const persisted = await request(`/attempts/${attemptId}/result`);
   const learning = await request(`/attempts/${attemptId}/learning-summary`);
   const durableEvidence = await client.query('SELECT COUNT(*)::int AS count FROM "LearningEvidence" WHERE "attemptId" = $1', [attemptId]);
   const durableMistakes = await client.query('SELECT COUNT(*)::int AS count FROM "MistakeMineEntry" WHERE "attemptId" = $1', [attemptId]);
-  if (resumed.form.snapshotId !== ids.form || saved.attemptRevision <= activated.revision || result.correct !== 1 || persisted.scoreRunReference !== result.scoreRunReference || duplicate.scoreRunReference !== result.scoreRunReference || learning.analytics.overall.correct !== 1 || durableEvidence.rows[0].count !== 1 || durableMistakes.rows[0].count !== 0) throw new Error('Persistent CBT HTTP assertions failed');
+  if (resumed.form.snapshotId !== ids.form || saved.attemptRevision <= activated.revision || result.correct !== 1 || persisted.scoreRunReference !== result.scoreRunReference || duplicate.scoreRunReference !== result.scoreRunReference || concurrent.some((item) => item.scoreRunReference !== result.scoreRunReference) || learning.analytics.overall.correct !== 1 || durableEvidence.rows[0].count !== 1 || durableMistakes.rows[0].count !== 0) throw new Error('Persistent CBT HTTP assertions failed');
   console.log('CBT HTTP integration checks passed: authenticated start, resume, server session, durable answer, atomic submission, deterministic scoring and durable learning projection.');
 } finally {
   if (accountId) {

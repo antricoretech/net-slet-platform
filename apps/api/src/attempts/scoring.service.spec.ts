@@ -27,9 +27,9 @@ function submittedAttempt(overrides: Record<string, unknown> = {}) {
     testForm: {
       snapshot: snapshot as unknown as Prisma.JsonValue, snapshotHash: snapshot.snapshotHash,
       questions: [
-        { questionVersionId: 'q-1', sessionKey: 'session-1', sectionKey: 'part-a', snapshot: snapshot.sections[0].questions[0] as unknown as Prisma.JsonValue, questionVersion: { answerKeys: [{ correctAnswers: ['a'] }] } },
-        { questionVersionId: 'q-2', sessionKey: 'session-1', sectionKey: 'part-a', snapshot: snapshot.sections[0].questions[1] as unknown as Prisma.JsonValue, questionVersion: { answerKeys: [{ correctAnswers: ['a'] }] } },
-        { questionVersionId: 'q-3', sessionKey: 'session-1', sectionKey: 'part-a', snapshot: snapshot.sections[0].questions[2] as unknown as Prisma.JsonValue, questionVersion: { answerKeys: [{ correctAnswers: ['a'] }] } },
+        { questionVersionId: 'q-1', sessionKey: 'session-1', sectionKey: 'part-a', snapshot: snapshot.sections[0].questions[0] as unknown as Prisma.JsonValue, answerKeyVersion: { id: 'key-q-1-v1', version: 1, correctAnswers: ['a'], exactMatch: false } },
+        { questionVersionId: 'q-2', sessionKey: 'session-1', sectionKey: 'part-a', snapshot: snapshot.sections[0].questions[1] as unknown as Prisma.JsonValue, answerKeyVersion: { id: 'key-q-2-v1', version: 1, correctAnswers: ['a'], exactMatch: false } },
+        { questionVersionId: 'q-3', sessionKey: 'session-1', sectionKey: 'part-a', snapshot: snapshot.sections[0].questions[2] as unknown as Prisma.JsonValue, answerKeyVersion: { id: 'key-q-3-v1', version: 1, correctAnswers: ['a'], exactMatch: false } },
       ],
     },
     ...overrides,
@@ -69,5 +69,31 @@ describe('ScoringService', () => {
     const invalid = submittedAttempt({ testForm: { ...submittedAttempt().testForm, snapshot: { ...snapshot, sessions: [{ ...snapshot.sessions[0], sections: [{ key: 'part-a' }] }] } } });
     const { database } = databaseFor(invalid);
     await expect(new ScoringService(database as unknown as PrismaService).score('account-1', 'attempt-1')).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('scores against the answer key pinned to the form, not a later question-version key', async () => {
+    const base = submittedAttempt();
+    const attempt = submittedAttempt({
+      testForm: {
+        ...base.testForm,
+        questions: [{
+          ...base.testForm.questions[0],
+          answerKeyVersion: { id: 'key-v1', version: 1, correctAnswers: ['a'], exactMatch: false },
+          questionVersion: { answerKeys: [{ id: 'key-v2', version: 2, correctAnswers: ['b'] }] },
+        }, ...base.testForm.questions.slice(1)],
+      },
+    });
+    const { database } = databaseFor(attempt);
+    const result = await new ScoringService(database as unknown as PrismaService).score('account-1', 'attempt-1');
+    expect(result.correct).toBe(1);
+    expect(result.incorrect).toBe(1);
+  });
+
+  it('allows aggregate scores while a pending result withholds explanations', async () => {
+    const { database } = databaseFor(submittedAttempt());
+    const result = await new ScoringService(database as unknown as PrismaService).score('account-1', 'attempt-1');
+    expect(result.status).toBe(ResultReleaseStatus.PENDING);
+    expect(result.totalMarksScaled).toBeDefined();
+    expect(result.explanations).toBe('UNAVAILABLE_UNTIL_RELEASE');
   });
 });
