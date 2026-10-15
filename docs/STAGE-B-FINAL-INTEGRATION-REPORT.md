@@ -3,6 +3,7 @@
 **Branch:** `feature/stage-b-integrated-development`
 
 **Base:** `ffa87d0` (`3589239` recovery repair included)
+**Validated head:** `d7ad8bdcde7a005ca519879f868bbe6243999dd1`
 **Scope:** local Stage B integration validation against disposable PostgreSQL/Redis only
 
 ## Delivered
@@ -37,6 +38,7 @@ Native Prisma 7.10 `migrate status` reports the isolated database `netslet_stage
 | `STAGE_B_REHEARSAL=1 pnpm test:integration` | PASS — normalized tables, migrations, audit triggers and publication immutability |
 | CBT HTTP integration | PASS — durable answer, atomic submit/score, deterministic result and durable learning projection |
 | `pnpm test:e2e -- tests/e2e/stage-b-cbt.spec.ts` | PASS — 3 authenticated browser tests against API port 4400 |
+| [GitHub Actions CI run 38767743972](https://github.com/antricoretech/net-slet-platform/actions/runs/38767743972) | PASS — canonical isolated migrations, generation, validation, typecheck, unit tests, lint, build, database integration, Stage B/Sprint 1 browser journeys and Sprint 2 acceptance |
 | Protected cold-start summary | Preserved byte-for-byte; SHA-256 `14899D4A4FD428CE4DDFC9923B0AC702A4394E43F0FDD4A1620BB0C60E2CA9D2` |
 
 ## Boundaries and residual gates
@@ -45,8 +47,8 @@ Native Prisma 7.10 `migrate status` reports the isolated database `netslet_stage
 - Result explanations remain withheld while the persisted result is `PENDING`.
 - Redis remains coordination/infrastructure; PostgreSQL remains authoritative for acknowledged answers, deadlines, scoring and learning evidence.
 - The historical recovery CI run, release-artifact review, owner approvals, active-database reconciliation and production deployment remain separate gates. This increment does not execute Stage B reconciliation.
-- The existing GitHub recovery workflow has not been modified or dispatched by this local validation.
+- The recovery-candidate CI workflow was not changed or dispatched. The open [Stage B integration pull request](https://github.com/antricoretech/net-slet-platform/pull/1) ran the repository CI workflow successfully against commit `d7ad8bdcde7a005ca519879f868bbe6243999dd1`; the run produced only platform deprecation/advisory annotations for Node 20 action versions and the future Ubuntu image change.
 
 ## Publication recommendation
 
-The local Stage B integration increment is technically validated for review and branch publication. It is not production-release approval. Proceed to commit review, branch push and pull-request CI evidence; retain active database reconciliation and production release behind the documented owner approvals.
+The Stage B integration increment is technically validated for review: local checks pass, the isolated canonical migration path is current, the authenticated browser journeys pass remotely, and pull request `#1` is open with green CI. It is not production-release approval. Active database reconciliation, owner approvals, release authorization and any merge to `main` remain separate gates.
