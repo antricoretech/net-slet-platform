@@ -6,6 +6,7 @@ import path from 'node:path';
 const requireFromApi = createRequire(path.resolve('apps/api/package.json'));
 const { Client } = requireFromApi('pg') as { Client: new (options: { connectionString: string }) => DbClient };
 interface DbClient { connect(): Promise<void>; end(): Promise<void>; query(text: string, values?: unknown[]): Promise<{ rows: Array<Record<string, unknown>> }>; }
+const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://localhost:4000/api/v1';
 
 function loadDatabaseUrl(): string {
   if (process.env.DATABASE_URL) return process.env.DATABASE_URL;
@@ -23,7 +24,7 @@ async function api(page: import('@playwright/test').Page, pathName: string, meth
   return page.evaluate(async ({ base, pathName: requestPath, method: requestMethod, body: requestBody }) => {
     const response = await fetch(`${base}${requestPath}`, { method: requestMethod, credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: requestBody === undefined ? undefined : JSON.stringify(requestBody) });
     return { status: response.status, body: await response.json().catch(() => ({})) };
-  }, { base: 'http://localhost:4000/api/v1', pathName, method, body });
+  }, { base: apiBase, pathName, method, body });
 }
 
 async function signIn(page: import('@playwright/test').Page, email: string, password: string) {
@@ -62,7 +63,7 @@ test('student-facing catalogue and protected pattern writes are reachable safely
   await page.goto('/examinations');
   await expect(page.getByRole('heading', { name: 'Distinct exams. Distinct rules.' })).toBeVisible();
   const result = await page.evaluate(async () => {
-    const response = await fetch('http://localhost:4000/api/v1/catalogue/examinations/UGC_NET/patterns', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cycleCode: 'TEST', subjectCode: 'CS', version: 1, rules: { sections: [] } }) });
+    const response = await fetch(`${apiBase}/catalogue/examinations/UGC_NET/patterns`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cycleCode: 'TEST', subjectCode: 'CS', version: 1, rules: { sections: [] } }) });
     return response.status;
   });
   expect(result).toBe(401);

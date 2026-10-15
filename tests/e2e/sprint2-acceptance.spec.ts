@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto';
 const requireFromApi = createRequire(path.resolve('apps/api/package.json'));
 const { Client } = requireFromApi('pg') as { Client: new (options: { connectionString: string }) => DbClient };
 interface DbClient { connect(): Promise<void>; end(): Promise<void>; query(text: string, values?: unknown[]): Promise<{ rows: Array<Record<string, unknown>> }> }
+const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://localhost:4000/api/v1';
 
 function isolatedDatabaseUrl(): string {
   const value = process.env.DATABASE_URL;
@@ -22,7 +23,7 @@ function isolatedDatabaseUrl(): string {
 
 async function api(page: Page, pathName: string, method = 'GET', body?: unknown): Promise<{ status: number; body: any }> {
   return page.evaluate(async ({ pathName, method, body }) => {
-    const response = await fetch(`http://localhost:4000/api/v1${pathName}`, { method, credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
+    const response = await fetch(`${apiBase}${pathName}`, { method, credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
     return { status: response.status, body: await response.json().catch(() => ({})) };
   }, { pathName, method, body });
 }
