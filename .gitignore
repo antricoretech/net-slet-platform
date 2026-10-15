@@ -12,6 +12,8 @@ coverage/
 !.env.local.example
 !**/.env.local.example
 apps/api/src/generated/
+test-results/stage-b-e2e/
+test-results/stage-b-e2e-runs/
 .DS_Store
 .idea/
 .vscode/*.local.json

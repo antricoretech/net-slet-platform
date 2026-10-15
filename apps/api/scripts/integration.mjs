@@ -25,14 +25,20 @@ try {
     if (!identity.rows[0]?.name?.startsWith('stage_a_') || identity.rows[0]?.port !== expectedServerPort || Number(new URL(connectionString).port || 5432) !== expectedUrlPort) {
       throw new Error('Stage A rehearsal must target the isolated PostgreSQL instance');
     }
+  } else if (process.env.STAGE_B_REHEARSAL === '1') {
+    const identity = await client.query('SELECT current_database() AS name, inet_server_port() AS port');
+    const expectedUrlPort = Number(process.env.STAGE_B_REHEARSAL_PORT ?? 55434);
+    if (!identity.rows[0]?.name?.startsWith('netslet_stageb_') || Number(new URL(connectionString).port || 5432) !== expectedUrlPort || identity.rows[0]?.port !== 5432) {
+      throw new Error('Stage B rehearsal must target the newly provisioned disposable PostgreSQL instance');
+    }
   }
-  const expectedTables = ['EmailVerificationToken', 'PasswordResetToken', 'ExamSubject', 'SyllabusVersion', 'SubjectUnit', 'SyllabusTopic', 'Question', 'QuestionVersion', 'QuestionOption', 'QuestionAnswerKeyVersion', 'QuestionExplanationVersion', 'QuestionSyllabusMapping', 'ContentProvenance', 'ContentLicence', 'QuestionReview', 'QuestionPublication', 'QuestionChallenge', 'SubjectPatternOverride', 'ExamSessionConfig', 'ExamSectionConfig', 'ScoringPolicy', 'LanguagePolicy', 'ExamRuleSource'];
+  const expectedTables = ['EmailVerificationToken', 'PasswordResetToken', 'ExamSubject', 'SyllabusVersion', 'SubjectUnit', 'SyllabusTopic', 'Question', 'QuestionVersion', 'QuestionOption', 'QuestionAnswerKeyVersion', 'QuestionExplanationVersion', 'QuestionSyllabusMapping', 'ContentProvenance', 'ContentLicence', 'QuestionReview', 'QuestionPublication', 'QuestionChallenge', 'SubjectPatternOverride', 'ExamSessionConfig', 'ExamSectionConfig', 'ScoringPolicy', 'LanguagePolicy', 'ExamRuleSource', ...(process.env.STAGE_B_REHEARSAL === '1' ? ['TestForm', 'TestFormQuestion', 'Attempt', 'AttemptSession', 'AttemptAnswer', 'AttemptAnswerEvent', 'AttemptSubmissionEvent', 'AttemptCommand', 'ScoreRun', 'AttemptResult', 'ResultExplanation', 'LearningEvidence', 'MistakeMineEntry', 'LearningTopicPerformance', 'LearningRecommendation'] : [])];
   const tableResult = await client.query('SELECT "table_name" FROM information_schema.tables WHERE table_schema = current_schema() AND "table_name" = ANY($1)', [expectedTables]);
   const actualTables = new Set(tableResult.rows.map((row) => row.table_name));
   for (const table of expectedTables) if (!actualTables.has(table)) throw new Error(`Missing normalized table: ${table}`);
 
   const migration = await client.query('SELECT COUNT(*)::int AS count FROM "_prisma_migrations" WHERE finished_at IS NOT NULL');
-  const minimumMigrations = process.env.STAGE_A_REHEARSAL === '1' ? 1 : 15;
+  const minimumMigrations = process.env.STAGE_A_REHEARSAL === '1' ? 1 : process.env.STAGE_B_REHEARSAL === '1' ? 3 : 15;
   if (migration.rows[0].count < minimumMigrations) throw new Error(`Expected at least ${minimumMigrations} migrations to be applied`);
 
   const triggerResult = await client.query("SELECT COUNT(*)::int AS count FROM information_schema.triggers WHERE trigger_name IN ('exam_pattern_version_immutability', 'pattern_session_immutability', 'pattern_scoring_immutability', 'question_revision_immutability', 'question_revision_delete_immutability', 'question_option_immutability', 'question_answer_key_immutability', 'question_explanation_immutability', 'question_mapping_immutability', 'question_translation_immutability', 'question_provenance_immutability', 'question_licence_immutability')");
