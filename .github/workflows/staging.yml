@@ -15,10 +15,10 @@ jobs:
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: netslet_staging_ci
+          POSTGRES_DB: netslet_stageb_ci
         ports: ['5432:5432']
         options: >-
-          --health-cmd "pg_isready -U postgres -d netslet_staging_ci"
+          --health-cmd "pg_isready -U postgres -d netslet_stageb_ci"
           --health-interval 5s --health-timeout 3s --health-retries 20
       redis:
         image: redis:7.4-alpine
@@ -31,8 +31,8 @@ jobs:
       # contract is exercised by runtime-config tests; no external endpoint is invented here.
       APP_ENV: test
       NODE_ENV: test
-      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/netslet_staging_ci?schema=public
-      STAGE_A_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/netslet_staging_ci?schema=public
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/netslet_stageb_ci?schema=public
+      STAGE_A_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/netslet_stageb_ci?schema=public
       REDIS_URL: redis://localhost:6379
       WEB_ORIGINS: http://127.0.0.1:3000
       NEXT_PUBLIC_API_BASE_URL: http://127.0.0.1:4000/api/v1
