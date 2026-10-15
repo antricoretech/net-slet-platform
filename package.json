@@ -3,6 +3,12 @@
   "version": "0.1.0",
   "private": true,
   "packageManager": "pnpm@10.19.0",
+  "pnpm": {
+    "overrides": {
+      "deepmerge-ts": "8.0.2",
+      "mysql2": "3.24.6"
+    }
+  },
   "engines": {
     "node": ">=24.11.0 <25"
   },
@@ -16,6 +22,9 @@
     "smoke": "node scripts/smoke.mjs",
     "test:e2e": "playwright test",
     "test:integration": "node apps/api/scripts/integration.mjs",
+    "security:secrets": "node scripts/check-secrets.mjs",
+    "security:audit": "pnpm audit --prod --audit-level=high",
+    "perf:baseline": "node scripts/performance-baseline.mjs",
     "db:generate": "pnpm --filter @net-slet/api db:generate",
     "db:migrate": "pnpm --filter @net-slet/api db:migrate",
     "infra:up": "docker compose up -d",
