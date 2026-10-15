@@ -10,7 +10,7 @@
     "dev": "pnpm --parallel --filter @net-slet/web --filter @net-slet/api dev",
     "build": "pnpm --filter @net-slet/exam-rules build && pnpm --filter @net-slet/api build && pnpm --filter @net-slet/web build",
     "typecheck": "pnpm --filter @net-slet/exam-rules build && pnpm --filter @net-slet/api typecheck && pnpm --filter @net-slet/web typecheck",
-    "test": "pnpm --filter @net-slet/exam-rules test && pnpm --filter @net-slet/api test",
+    "test": "pnpm --filter @net-slet/exam-rules build && pnpm --filter @net-slet/exam-rules test && pnpm --filter @net-slet/api test",
     "lint": "pnpm --filter @net-slet/web lint && pnpm --filter @net-slet/api lint",
     "verify:structure": "node scripts/check-structure.mjs",
     "smoke": "node scripts/smoke.mjs",
