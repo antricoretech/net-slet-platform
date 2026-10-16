@@ -17,6 +17,7 @@ export class PreparationController {
   @Get(':examinationCode/paper-i/syllabus') paperISyllabus(@Param('examinationCode') examinationCode: string) { return this.preparation.syllabus(examinationCode, 'PAPER_I'); }
   @Get(':examinationCode/paper-ii/subjects') paperIISubjects(@Param('examinationCode') examinationCode: string) { return this.preparation.subjects(examinationCode); }
   @Get(':examinationCode/paper-ii/:subjectCode') paperII(@Param('examinationCode') examinationCode: string, @Param('subjectCode') subjectCode: string) { return this.preparation.subjectOverview(examinationCode, subjectCode); }
+  @Get(':examinationCode/practice') practice(@Param('examinationCode') examinationCode: string, @Query('subjectCode') subjectCode?: string, @Query('topicId') topicId?: string) { return this.preparation.practice(examinationCode, subjectCode ?? 'PAPER_I', topicId); }
   @Get(':examinationCode/pyqs') pyqs(@Param('examinationCode') examinationCode: string, @Query() query: Record<string, unknown>) { return this.preparation.pyqs(examinationCode, query); }
   @Get(':examinationCode/mocks') mocks(@Param('examinationCode') examinationCode: string, @Query('subjectCode') subjectCode?: string) { return this.preparation.mocks(examinationCode, subjectCode); }
   @Get('learning/summary') learning(@Req() request: RequestLike) { return this.preparation.learningSummary(request.user!.id); }

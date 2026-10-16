@@ -1,9 +1,9 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { PatternStatus, PublicationStatus, QuestionVersionStatus, RightsStatus, SyllabusStatus, TestFormStatus } from '../generated/prisma/client';
+import { PatternStatus, PublicationStatus, QuestionVersionStatus, ReviewDecision, SyllabusStatus, TestFormStatus } from '../generated/prisma/client';
 import { resolveCurrentPattern, type PreparationPatternCandidate } from '@net-slet/exam-rules';
 import { PrismaService } from '../database/prisma.service';
+import { CLEARED_RIGHTS, evaluateFormEligibility, evaluateQuestionEligibility } from './eligibility';
 
-const CLEARED_RIGHTS: RightsStatus[] = [RightsStatus.OWNED, RightsStatus.LICENSED, RightsStatus.PERMISSION_GRANTED, RightsStatus.PUBLIC_DOMAIN];
 const code = (value: string) => value.trim().toUpperCase();
 const stringQuery = (value: unknown) => typeof value === 'string' && value.trim() ? value.trim() : undefined;
 const integerQuery = (value: unknown) => typeof value === 'string' && /^\d{4}$/.test(value) ? Number(value) : undefined;
@@ -26,7 +26,7 @@ export class PreparationService {
   }
 
   async syllabus(examinationCode: string, subjectCode: string) {
-    const syllabus = await this.database.syllabusVersion.findFirst({ where: { subjectCode: code(subjectCode), status: SyllabusStatus.PUBLISHED, examCycle: { examination: { code: code(examinationCode) } } }, orderBy: [{ version: 'desc' }, { updatedAt: 'desc' }], include: { examCycle: { select: { code: true } }, units: { orderBy: { sequence: 'asc' }, include: { topics: { orderBy: { sequence: 'asc' }, select: { code: true, title: true, sequence: true, children: { orderBy: { sequence: 'asc' }, select: { code: true, title: true, sequence: true } } } } } } } });
+    const syllabus = await this.database.syllabusVersion.findFirst({ where: { subjectCode: code(subjectCode), status: SyllabusStatus.PUBLISHED, examCycle: { examination: { code: code(examinationCode) } } }, orderBy: [{ version: 'desc' }, { updatedAt: 'desc' }], include: { examCycle: { select: { code: true } }, units: { orderBy: { sequence: 'asc' }, include: { topics: { orderBy: { sequence: 'asc' }, select: { id: true, code: true, title: true, sequence: true, children: { orderBy: { sequence: 'asc' }, select: { id: true, code: true, title: true, sequence: true } } } } } } } });
     if (!syllabus) return { available: false as const, reason: 'SYLLABUS_EVIDENCE_PENDING', examinationCode: code(examinationCode), subjectCode: code(subjectCode) };
     return { available: true as const, id: syllabus.id, title: syllabus.title, version: syllabus.version, cycleCode: syllabus.examCycle.code, subjectCode: syllabus.subjectCode, units: syllabus.units };
   }
@@ -44,8 +44,31 @@ export class PreparationService {
     const listed = await this.subjects(examinationCode);
     const match = listed.data.find((item) => item.code === subject);
     if (!match) return { available: false as const, subjectCode: subject, reason: 'SUBJECT_CURRENTLY_UNAVAILABLE' };
-    const [syllabus, pattern] = await Promise.all([this.syllabus(examinationCode, subject), this.resolvePattern(examinationCode, subject, 'PAPER_II')]);
-    return { available: true as const, subject: match, syllabus, pattern, practice: { available: false, reason: 'QUALIFIED_QUESTION_INVENTORY_PENDING' }, mocks: { available: false, reason: 'PUBLICATION_READINESS_PENDING' } };
+    const [syllabus, pattern, practice, mocks] = await Promise.all([this.syllabus(examinationCode, subject), this.resolvePattern(examinationCode, subject, 'PAPER_II'), this.practice(examinationCode, subject), this.mocks(examinationCode, subject)]);
+    return { available: true as const, subject: match, syllabus, pattern, practice, mocks };
+  }
+
+  async practice(examinationCode: string, subjectCode: string, topicId?: string) {
+    const subject = code(subjectCode);
+    const syllabus = await this.syllabus(examinationCode, subject);
+    if (!syllabus.available) return { available: false as const, reason: syllabus.reason, subjectCode: subject, topics: [] };
+    const topicIds = syllabus.units.flatMap((unit) => unit.topics.flatMap((topic) => [topic.id, ...topic.children.map((child) => child.id)]));
+    const requestedTopic = stringQuery(topicId);
+    const revisions = await this.database.questionVersion.findMany({
+      where: { status: QuestionVersionStatus.PUBLISHED, question: { subjectCode: subject, examCycle: { examination: { code: code(examinationCode) } } }, ...(requestedTopic ? { mappings: { some: { syllabusTopicId: requestedTopic } } } : { mappings: { some: { syllabusTopicId: { in: topicIds } } } }), publication: { status: PublicationStatus.ACTIVE }, answerKeys: { some: {} }, explanations: { some: {} }, provenance: { some: { rightsStatus: { in: [...CLEARED_RIGHTS] } } } },
+      select: { id: true, mappings: { select: { syllabusTopicId: true } }, answerKeys: { select: { id: true } }, explanations: { select: { id: true } }, provenance: { select: { rightsStatus: true } }, reviews: { where: { decision: ReviewDecision.APPROVED }, select: { reviewerId: true } }, publication: { select: { status: true } } },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    });
+    const counts = new Map<string, number>();
+    const excludedReasons = new Map<string, Set<string>>();
+    for (const revision of revisions) {
+      const eligibility = evaluateQuestionEligibility({ status: QuestionVersionStatus.PUBLISHED, publicationStatus: revision.publication?.status, answerKeyCount: revision.answerKeys.length, explanationCount: revision.explanations.length, mappingCount: revision.mappings.length, provenanceRights: revision.provenance.map((item) => item.rightsStatus), approvedReviewerIds: revision.reviews.map((review) => review.reviewerId) });
+      const mappedTopics = revision.mappings.map((mapping) => mapping.syllabusTopicId);
+      if (eligibility.eligible) for (const mappedTopic of mappedTopics) counts.set(mappedTopic, (counts.get(mappedTopic) ?? 0) + 1);
+      else for (const mappedTopic of mappedTopics) { const reasons = excludedReasons.get(mappedTopic) ?? new Set<string>(); eligibility.reasons.forEach((reason) => reasons.add(reason)); excludedReasons.set(mappedTopic, reasons); }
+    }
+    const topics = syllabus.units.flatMap((unit) => unit.topics.flatMap((topic) => [topic, ...topic.children])).filter((topic) => !requestedTopic || topic.id === requestedTopic).map((topic) => { const questionCount = counts.get(topic.id) ?? 0; return { topicId: topic.id, code: topic.code, title: topic.title, questionCount, available: questionCount > 0, reason: questionCount ? undefined : [...(excludedReasons.get(topic.id) ?? new Set(['QUALIFIED_QUESTION_INVENTORY_PENDING']))][0] }; });
+    return { available: topics.some((topic) => topic.available), subjectCode: subject, topics, reason: topics.some((topic) => topic.available) ? undefined : 'QUALIFIED_QUESTION_INVENTORY_PENDING' };
   }
 
   async pyqs(examinationCode: string, query: Record<string, unknown>) {
@@ -55,16 +78,20 @@ export class PreparationService {
     const year = integerQuery(query.year);
     const records = await this.database.question.findMany({ where: { examCycle: { examination: { code: code(examinationCode) }, ...(cycleCode ? { code: cycleCode } : {}) }, ...(subjectCode ? { subjectCode: code(subjectCode) } : {}), versions: { some: { status: QuestionVersionStatus.PUBLISHED, publication: { is: { status: PublicationStatus.ACTIVE } }, provenance: { some: { rightsStatus: { in: CLEARED_RIGHTS } } } } } }, select: { id: true, subjectCode: true, examCycleId: true }, orderBy: { createdAt: 'desc' }, take: 100 });
     const cycleCodes = new Map((await this.database.examCycle.findMany({ where: { id: { in: records.map((item) => item.examCycleId) } }, select: { id: true, code: true } })).map((cycle) => [cycle.id, cycle.code]));
-    const versions = await this.database.questionVersion.findMany({ where: { questionId: { in: records.map((item) => item.id) }, status: QuestionVersionStatus.PUBLISHED, publication: { is: { status: PublicationStatus.ACTIVE } }, provenance: { some: { rightsStatus: { in: CLEARED_RIGHTS } } } }, select: { id: true, questionId: true, publishedAt: true, provenance: { where: { rightsStatus: { in: CLEARED_RIGHTS } }, select: { sourceTitle: true, sourceReference: true } } }, orderBy: { version: 'desc' } });
+    const versions = await this.database.questionVersion.findMany({ where: { questionId: { in: records.map((item) => item.id) }, status: QuestionVersionStatus.PUBLISHED, publication: { is: { status: PublicationStatus.ACTIVE } }, provenance: { some: { rightsStatus: { in: [...CLEARED_RIGHTS] } } }, answerKeys: { some: {} }, explanations: { some: {} }, mappings: { some: {} } }, select: { id: true, questionId: true, publishedAt: true, provenance: { where: { rightsStatus: { in: [...CLEARED_RIGHTS] } }, select: { sourceTitle: true, sourceReference: true, rightsStatus: true } }, answerKeys: { select: { id: true } }, explanations: { select: { id: true } }, mappings: { select: { syllabusTopicId: true } }, reviews: { where: { decision: ReviewDecision.APPROVED }, select: { reviewerId: true } }, publication: { select: { status: true } } }, orderBy: { version: 'desc' } });
     const latestVersion = new Map<string, (typeof versions)[number]>();
-    for (const version of versions) if (!latestVersion.has(version.questionId)) latestVersion.set(version.questionId, version);
+    for (const version of versions) {
+      const eligibility = evaluateQuestionEligibility({ status: QuestionVersionStatus.PUBLISHED, publicationStatus: version.publication?.status, answerKeyCount: version.answerKeys.length, explanationCount: version.explanations.length, mappingCount: version.mappings.length, provenanceRights: version.provenance.map((item) => item.rightsStatus), approvedReviewerIds: version.reviews.map((review) => review.reviewerId) });
+      if (eligibility.eligible && !latestVersion.has(version.questionId)) latestVersion.set(version.questionId, version);
+    }
     const filtered = records.filter((item) => { const currentCycleCode = cycleCodes.get(item.examCycleId) ?? ''; const parsedYear = Number(currentCycleCode.match(/(?:19|20)\d{2}/)?.[0]); return (!year || parsedYear === year) && (!session || currentCycleCode.toLowerCase().includes(session.toLowerCase())) && latestVersion.has(item.id); });
     return { data: filtered.map((item) => { const currentCycleCode = cycleCodes.get(item.examCycleId) ?? ''; const version = latestVersion.get(item.id); return { questionId: item.id, questionVersionId: version?.id, examinationCode: code(examinationCode), cycleCode: currentCycleCode, subjectCode: item.subjectCode, publishedAt: version?.publishedAt, provenance: version?.provenance[0] }; }), filters: { year, cycleCode, session, subjectCode }, rightsPolicy: 'CLEARED_PROVENANCE_ONLY', notices: filtered.length ? [] : ['No rights-cleared historical questions match these filters.'] };
   }
 
   async mocks(examinationCode: string, subjectCode?: string) {
-    const forms = await this.database.testForm.findMany({ where: { status: TestFormStatus.PUBLISHED, ...(subjectCode ? { subjectCode: code(subjectCode) } : {}), examCycle: { examination: { code: code(examinationCode) } }, patternVersion: { status: PatternStatus.PUBLISHED } }, select: { id: true, subjectCode: true, version: true, snapshotHash: true, publishedAt: true, examCycle: { select: { code: true } }, patternVersion: { select: { id: true, version: true, ruleHash: true, status: true } } }, orderBy: { publishedAt: 'desc' }, take: 50 });
-    return { data: forms.map((form) => ({ id: form.id, subjectCode: form.subjectCode, cycleCode: form.examCycle.code, version: form.version, snapshotHash: form.snapshotHash, publishedAt: form.publishedAt, patternVersion: form.patternVersion.version, patternId: form.patternVersion.id })), available: forms.length > 0, reason: forms.length ? undefined : 'NO_PUBLICATION_READY_MOCK_FOR_SCOPE' };
+    const forms = await this.database.testForm.findMany({ where: { status: TestFormStatus.PUBLISHED, ...(subjectCode ? { subjectCode: code(subjectCode) } : {}), examCycle: { examination: { code: code(examinationCode) } }, patternVersion: { status: PatternStatus.PUBLISHED } }, select: { id: true, subjectCode: true, version: true, snapshot: true, snapshotHash: true, publishedAt: true, examCycle: { select: { code: true } }, patternVersion: { select: { id: true, version: true, ruleHash: true, status: true } }, questions: { select: { answerKeyVersionId: true } } }, orderBy: { publishedAt: 'desc' }, take: 50 });
+    const eligible = forms.flatMap((form) => { const publication = form.snapshot && typeof form.snapshot === 'object' && !Array.isArray(form.snapshot) && 'publication' in form.snapshot && form.snapshot.publication && typeof form.snapshot.publication === 'object' ? form.snapshot.publication as Record<string, unknown> : {}; const decision = evaluateFormEligibility({ status: TestFormStatus.PUBLISHED, patternStatus: form.patternVersion.status, questionCount: form.questions.length, answerKeyCount: form.questions.filter((question) => Boolean(question.answerKeyVersionId)).length, snapshotPublication: publication }); return decision.eligible ? [{ id: form.id, subjectCode: form.subjectCode, cycleCode: form.examCycle.code, version: form.version, snapshotHash: form.snapshotHash, publishedAt: form.publishedAt, patternVersion: form.patternVersion.version, patternId: form.patternVersion.id }] : []; });
+    return { data: eligible, available: eligible.length > 0, reason: eligible.length ? undefined : 'NO_PUBLICATION_READY_MOCK_FOR_SCOPE' };
   }
 
   async learningSummary(accountId: string) {
