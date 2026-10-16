@@ -47,7 +47,7 @@ describe('PreparationService', () => {
     expect(result.pagination).toMatchObject({ page: 1, pageSize: 1, hasNextPage: false });
     expect(result.data[0]).toMatchObject({ year: 2025, session: 'SHIFT_1', questionSequence: 4 });
     expect(result.data[0]).not.toHaveProperty('correctAnswers');
-    expect(database.historicalQuestionMetadata.findMany).toHaveBeenCalledWith(expect.objectContaining({ take: 10001, orderBy: [{ sourceYear: 'desc' }, { questionSequence: 'asc' }, { id: 'asc' }] }));
+    expect(database.historicalQuestionMetadata.findMany).toHaveBeenCalledWith(expect.objectContaining({ take: 100, orderBy: [{ sourceYear: 'desc' }, { questionSequence: 'asc' }, { id: 'asc' }] }));
   });
 
   it('applies qualification before pagination and never counts restricted rows as a page', async () => {
@@ -58,6 +58,16 @@ describe('PreparationService', () => {
     expect(result.data).toHaveLength(1);
     expect(result.data[0].questionVersionId).toBe('version-eligible');
     expect(result.pagination.hasNextPage).toBe(false);
+  });
+
+  it('uses bounded keyset pagination for a 100-record synthetic inventory', async () => {
+    const records = Array.from({ length: 100 }, (_, index) => ({ id: `meta-${index + 1}`, questionVersionId: `version-${index + 1}`, examinationFamily: 'UGC_NET', recordStatus: 'VERIFIED', verificationStatus: 'VERIFIED', publicationEligible: true, revokedAt: null, rightsExpiresAt: null, sourceYear: 2025, questionSequence: index + 1, authority: 'NTA', historicalCycle: 'JUNE', session: 'SHIFT_1', paper: 'PAPER_II', subjectCode: 'CS', questionPaperReference: 'paper-ref', languageCode: 'en', sourceReference: 'official-ref', sourceChecksum: 'sha256', answerKeyProvenance: null, rightsStatus: RightsStatus.OWNED, rightsScope: { allowedUses: ['PYQ_DISCOVERY'], languages: ['en'] }, examCycle: { code: '2025-JUNE', examination: { family: 'UGC_NET' } }, questionVersion: { languageCode: 'en', publishedAt: new Date(), question: { subjectCode: 'CS' }, translations: [], reviews: [{ reviewerId: 'one' }, { reviewerId: 'two' }], answerKeys: [{ id: 'key' }], explanations: [{ id: 'explanation' }], mappings: [{ syllabusTopicId: 'topic' }], publication: { status: 'ACTIVE' } } }));
+    const database = { historicalQuestionMetadata: { findMany: jest.fn(async ({ where }: { where: Record<string, unknown> }) => { const cursor = where.OR as Array<Record<string, unknown>> | undefined; if (!cursor) return records; const anchor = records.find((item) => item.id === (cursor[2]?.id as { gt?: string } | undefined)?.gt); return anchor ? records.slice(records.indexOf(anchor) + 1) : records; }) } };
+    const result = await new PreparationService(database as unknown as PrismaService).pyqs('UGC_NET', { pageSize: '20' });
+    expect(result.data).toHaveLength(20);
+    expect(result.pagination).toMatchObject({ page: 1, pageSize: 20, hasNextPage: true });
+    expect(result.pagination.nextCursor).toEqual(expect.any(String));
+    expect(database.historicalQuestionMetadata.findMany).toHaveBeenCalledWith(expect.objectContaining({ take: 100 }));
   });
 
   it('reports verified and publication-ready inventory for administrators', async () => {

@@ -36,6 +36,7 @@ export type HistoricalMetadataEligibilityEvidence = {
   examinationFamilyMatches: boolean;
   subjectMatches: boolean;
   question: QuestionEligibilityEvidence;
+  requiredUse?: string;
 };
 
 function normalizedScope(value: unknown): HistoricalRightsScope | undefined {
@@ -57,7 +58,8 @@ export function evaluateHistoricalMetadataEligibility(evidence: HistoricalMetada
   const scope = normalizedScope(evidence.rightsScope);
   if (!scope) reasons.push('RIGHTS_SCOPE_MISSING_OR_AMBIGUOUS');
   else {
-    if (!scope.allowedUses.includes(HISTORICAL_PYQ_DISCOVERY_USE)) reasons.push('RIGHTS_SCOPE_USE_NOT_ALLOWED');
+    const requiredUse = evidence.requiredUse ?? HISTORICAL_PYQ_DISCOVERY_USE;
+    if (!scope.allowedUses.includes(requiredUse)) reasons.push('RIGHTS_SCOPE_USE_NOT_ALLOWED');
     const language = evidence.requestedLanguage?.trim().toLowerCase();
     const languages = scope.languages.map((item) => typeof item === 'string' ? item.trim().toLowerCase() : '').filter(Boolean);
     if (language && !languages.includes('*') && !languages.includes(language)) reasons.push('RIGHTS_SCOPE_LANGUAGE_NOT_ALLOWED');

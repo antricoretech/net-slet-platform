@@ -22,6 +22,7 @@
     "smoke": "node scripts/smoke.mjs",
     "test:e2e": "playwright test",
     "test:integration": "node apps/api/scripts/integration.mjs",
+    "test:historical-pyq:http": "node apps/api/scripts/historical-pyq-http-integration.mjs",
     "security:secrets": "node scripts/check-secrets.mjs",
     "security:audit": "pnpm audit --prod --audit-level=high",
     "perf:baseline": "node scripts/performance-baseline.mjs",
