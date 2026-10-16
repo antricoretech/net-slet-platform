@@ -4,7 +4,7 @@ import { validateBlueprint, type SectionBlueprint, type SessionBlueprint } from 
 import { AnswerPolicy, AuditEventType, DeliveryMode, PatternApprovalDecision, PatternStatus, Prisma, SessionTimingPolicy } from '../generated/prisma/client';
 import { PrismaService } from '../database/prisma.service';
 
-interface EvidenceInput { officialSourceUrl: string; sourceDocumentHash: string; sourcePublishedAt?: Date; effectiveAt?: Date; officialDocumentTitle: string; issuingAuthority: string; evidenceExcerpt: string; artifactReference: string; questionBankCoverage: Prisma.InputJsonValue; regressionReportId: string; }
+interface EvidenceInput { officialSourceUrl: string; sourceDocumentHash: string; retrievedAt?: Date; sourcePublishedAt?: Date; effectiveAt?: Date; officialDocumentTitle: string; issuingAuthority: string; evidenceExcerpt: string; artifactReference: string; questionBankCoverage: Prisma.InputJsonValue; regressionReportId: string; }
 interface SectionInput { key: string; durationSeconds: number; offeredQuestions: number; maximumAttempts: number; answerPolicy: AnswerPolicy; marksCorrect: string; marksWrong: string; exactMatch: boolean; allowMultipleCorrect: boolean; }
 interface SessionInput { key: string; durationSeconds: number; sequence: number; deliveryMode: DeliveryMode; timingPolicy: SessionTimingPolicy; submitSeparately: boolean; allowReturn: boolean; sections: SectionInput[]; }
 interface OverrideInput { subjectCode: string; rules: Prisma.InputJsonValue; }
@@ -60,8 +60,8 @@ export class PatternService {
           await tx.subjectPatternOverride.create({ data: { patternVersionId: version.id, subjectCode: override.subjectCode, rules: override.rules, ruleHash: ruleHash(override.rules), examSubjectId: subject.id } });
         }
         if (parsed.evidence) {
-          await tx.patternEvidence.create({ data: { patternVersionId: version.id, officialSourceUrl: parsed.evidence.officialSourceUrl, sourceDocumentHash: parsed.evidence.sourceDocumentHash, sourcePublishedAt: parsed.evidence.sourcePublishedAt, effectiveAt: parsed.evidence.effectiveAt, officialDocumentTitle: parsed.evidence.officialDocumentTitle, issuingAuthority: parsed.evidence.issuingAuthority, evidenceExcerpt: parsed.evidence.evidenceExcerpt, artifactReference: parsed.evidence.artifactReference, questionBankCoverage: parsed.evidence.questionBankCoverage, regressionReportId: parsed.evidence.regressionReportId, submittedById: actorId } });
-          await tx.examRuleSource.create({ data: { patternVersionId: version.id, title: parsed.evidence.officialDocumentTitle, issuingAuthority: parsed.evidence.issuingAuthority, cycleCode: parsed.cycleCode, publicationDate: parsed.evidence.sourcePublishedAt, effectiveDate: parsed.evidence.effectiveAt, sourceUrl: parsed.evidence.officialSourceUrl, evidenceExcerpt: parsed.evidence.evidenceExcerpt, documentHash: parsed.evidence.sourceDocumentHash, artifactReference: parsed.evidence.artifactReference } });
+          await tx.patternEvidence.create({ data: { patternVersionId: version.id, officialSourceUrl: parsed.evidence.officialSourceUrl, sourceDocumentHash: parsed.evidence.sourceDocumentHash, retrievedAt: parsed.evidence.retrievedAt, sourcePublishedAt: parsed.evidence.sourcePublishedAt, effectiveAt: parsed.evidence.effectiveAt, officialDocumentTitle: parsed.evidence.officialDocumentTitle, issuingAuthority: parsed.evidence.issuingAuthority, evidenceExcerpt: parsed.evidence.evidenceExcerpt, artifactReference: parsed.evidence.artifactReference, questionBankCoverage: parsed.evidence.questionBankCoverage, regressionReportId: parsed.evidence.regressionReportId, submittedById: actorId } });
+          await tx.examRuleSource.create({ data: { patternVersionId: version.id, title: parsed.evidence.officialDocumentTitle, issuingAuthority: parsed.evidence.issuingAuthority, cycleCode: parsed.cycleCode, retrievedAt: parsed.evidence.retrievedAt, publicationDate: parsed.evidence.sourcePublishedAt, effectiveDate: parsed.evidence.effectiveAt, sourceUrl: parsed.evidence.officialSourceUrl, evidenceExcerpt: parsed.evidence.evidenceExcerpt, documentHash: parsed.evidence.sourceDocumentHash, artifactReference: parsed.evidence.artifactReference } });
         }
         await tx.auditEvent.create({ data: { type: AuditEventType.PATTERN_DRAFT_CREATED, accountId: actorId, patternVersionId: version.id, metadata: { examinationCode: exam.code, cycleCode: parsed.cycleCode, subjectCode: parsed.subjectCode, version: parsed.version } } });
         return { id: version.id, status: version.status, examinationCode: exam.code, cycleCode: parsed.cycleCode, subjectCode: parsed.subjectCode, version: parsed.version, ruleHash: version.ruleHash };
@@ -147,6 +147,7 @@ export class PatternService {
     const officialSourceUrl = typeof value.officialSourceUrl === 'string' ? value.officialSourceUrl.trim() : '';
     const sourceDocumentHash = typeof value.sourceDocumentHash === 'string' ? value.sourceDocumentHash.trim().toLowerCase() : '';
     const regressionReportId = typeof value.regressionReportId === 'string' ? value.regressionReportId.trim() : '';
+    const retrievedAt = typeof value.retrievedAt === 'string' ? new Date(value.retrievedAt) : undefined;
     const officialDocumentTitle = typeof value.officialDocumentTitle === 'string' ? value.officialDocumentTitle.trim() : '';
     const issuingAuthority = typeof value.issuingAuthority === 'string' ? value.issuingAuthority.trim() : '';
     const evidenceExcerpt = typeof value.evidenceExcerpt === 'string' ? value.evidenceExcerpt.trim() : '';
@@ -154,8 +155,8 @@ export class PatternService {
     const questionBankCoverage = value.questionBankCoverage;
     const sourcePublishedAt = typeof value.sourcePublishedAt === 'string' ? new Date(value.sourcePublishedAt) : undefined;
     const effectiveAt = typeof value.effectiveAt === 'string' ? new Date(value.effectiveAt) : undefined;
-    if (!this.isHttpsUrl(officialSourceUrl) || !/^[a-f0-9]{64}$/.test(sourceDocumentHash) || !regressionReportId || regressionReportId.length > 160 || !officialDocumentTitle || !issuingAuthority || !evidenceExcerpt || !artifactReference || !questionBankCoverage || typeof questionBankCoverage !== 'object' || (sourcePublishedAt && Number.isNaN(sourcePublishedAt.getTime())) || (effectiveAt && Number.isNaN(effectiveAt.getTime()))) throw new BadRequestException('Complete official source, authority, excerpt, artifact, coverage and regression evidence are required');
-    return { officialSourceUrl, sourceDocumentHash, sourcePublishedAt, effectiveAt, officialDocumentTitle, issuingAuthority, evidenceExcerpt, artifactReference, questionBankCoverage: questionBankCoverage as Prisma.InputJsonValue, regressionReportId };
+    if (!this.isHttpsUrl(officialSourceUrl) || !/^[a-f0-9]{64}$/.test(sourceDocumentHash) || !regressionReportId || regressionReportId.length > 160 || !officialDocumentTitle || !issuingAuthority || !evidenceExcerpt || !artifactReference || !questionBankCoverage || typeof questionBankCoverage !== 'object' || (retrievedAt && Number.isNaN(retrievedAt.getTime())) || (sourcePublishedAt && Number.isNaN(sourcePublishedAt.getTime())) || (effectiveAt && Number.isNaN(effectiveAt.getTime()))) throw new BadRequestException('Complete official source, retrieval, authority, excerpt, artifact, coverage and regression evidence are required');
+    return { officialSourceUrl, sourceDocumentHash, retrievedAt, sourcePublishedAt, effectiveAt, officialDocumentTitle, issuingAuthority, evidenceExcerpt, artifactReference, questionBankCoverage: questionBankCoverage as Prisma.InputJsonValue, regressionReportId };
   }
 
   private parseApproval(input: unknown): ApprovalInput {

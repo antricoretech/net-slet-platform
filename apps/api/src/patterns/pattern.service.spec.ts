@@ -34,6 +34,32 @@ describe('PatternService', () => {
     await expect(service.createDraft('UGC_NET', { cycleCode: '2026', subjectCode: 'CS', version: 1, rules: validRules }, 'admin-1')).rejects.toBeInstanceOf(ConflictException);
   });
 
+  it('persists an explicit official-source retrieval timestamp', async () => {
+    const transaction = {
+      examCycle: { upsert: jest.fn(async () => ({ id: 'cycle-1' })) },
+      examSubject: { upsert: jest.fn(async () => ({ id: 'subject-1' })) },
+      examPatternVersion: { create: jest.fn(async () => ({ id: 'pattern-1', ruleHash: ruleHash(validRules) })) },
+      examSessionConfig: { create: jest.fn(async () => ({ id: 'session-1' })) },
+      examSectionConfig: { create: jest.fn(async () => ({ id: 'section-1' })) },
+      scoringPolicy: { create: jest.fn(async () => ({ id: 'scoring-1' })) },
+      languagePolicy: { create: jest.fn(async () => ({ id: 'language-1' })) },
+      subjectPatternOverride: { create: jest.fn() },
+      patternEvidence: { create: jest.fn(async ({ data }: { data: Record<string, unknown> }) => data) },
+      examRuleSource: { create: jest.fn(async ({ data }: { data: Record<string, unknown> }) => data) },
+      auditEvent: { create: jest.fn(async () => undefined) },
+    };
+    const database = {
+      examination: { findUnique: jest.fn(async () => ({ id: 'exam-1', code: 'UGC_NET' })) },
+      $transaction: jest.fn(async (callback: (value: typeof transaction) => unknown) => callback(transaction)),
+    };
+    const service = new PatternService(database as unknown as PrismaService);
+    const retrievedAt = '2026-10-01T12:00:00.000Z';
+
+    await service.createDraft('UGC_NET', { cycleCode: '2026', subjectCode: 'CS', version: 1, rules: validRules, evidence: { officialSourceUrl: 'https://authority.example/bulletin.pdf', sourceDocumentHash: 'a'.repeat(64), retrievedAt, officialDocumentTitle: 'Cycle bulletin', issuingAuthority: 'Authority', evidenceExcerpt: 'Relevant rule', artifactReference: 'fixture://bulletin', questionBankCoverage: { PAPER_I: 1 }, regressionReportId: 'regression-1' } }, 'admin-1');
+    expect(transaction.patternEvidence.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ retrievedAt: new Date(retrievedAt) }) }));
+    expect(transaction.examRuleSource.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ retrievedAt: new Date(retrievedAt) }) }));
+  });
+
   it('requires evidence before approval and blocks non-draft review', async () => {
     const database = {
       examPatternVersion: {
