@@ -54,6 +54,8 @@ jobs:
         run: pnpm --filter @net-slet/api exec prisma migrate deploy --config ../../recovery/stage-a/prisma.config.ts
       - name: Validate workspace
         run: pnpm verify:structure
+      - name: Validate production-readiness workflow input policy
+        run: pnpm test:workflow-input
       - name: Type-check
         run: pnpm typecheck
       - name: Run unit tests

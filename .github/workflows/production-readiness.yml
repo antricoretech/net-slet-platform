@@ -73,17 +73,22 @@ jobs:
       - run: pnpm lint
       - run: pnpm build
       - run: pnpm test:integration
-      - name: Build reproducible non-root images
-        run: |
-          docker build --file deploy/docker/api.Dockerfile --tag net-slet-api:${GITHUB_SHA} .
-          docker build --file deploy/docker/web.Dockerfile --build-arg APP_ENV=production --build-arg NEXT_PUBLIC_API_BASE_URL="${NEXT_PUBLIC_API_BASE_URL}" --tag net-slet-web:${GITHUB_SHA} .
-          test "$(docker image inspect --format '{{.Config.User}}' net-slet-api:${GITHUB_SHA})" = 'node'
-          test "$(docker image inspect --format '{{.Config.User}}' net-slet-web:${GITHUB_SHA})" = 'node'
-      - name: Verify release input is immutable
+      - name: Resolve and verify immutable release input
+        id: release-input
         env:
-          IMAGE_TAG: ${{ inputs.image_tag }}
-        shell: bash
-        run: test -n "$IMAGE_TAG" && test "$IMAGE_TAG" = "${GITHUB_SHA}" || { echo 'Use the reviewed commit SHA as the image tag.'; exit 1; }
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GITHUB_REF: ${{ github.ref }}
+          GITHUB_SHA: ${{ github.sha }}
+          IMAGE_TAG_INPUT: ${{ inputs.image_tag }}
+        run: node scripts/resolve-production-readiness-image-tag.mjs
+      - name: Build reproducible non-root images
+        env:
+          IMAGE_TAG: ${{ steps.release-input.outputs.image_tag }}
+        run: |
+          docker build --file deploy/docker/api.Dockerfile --tag net-slet-api:${IMAGE_TAG} .
+          docker build --file deploy/docker/web.Dockerfile --build-arg APP_ENV=production --build-arg NEXT_PUBLIC_API_BASE_URL="${NEXT_PUBLIC_API_BASE_URL}" --tag net-slet-web:${IMAGE_TAG} .
+          test "$(docker image inspect --format '{{.Config.User}}' net-slet-api:${IMAGE_TAG})" = 'node'
+          test "$(docker image inspect --format '{{.Config.User}}' net-slet-web:${IMAGE_TAG})" = 'node'
       - name: Release handoff
         run: |
           echo 'Readiness checks passed for the approved commit.'
