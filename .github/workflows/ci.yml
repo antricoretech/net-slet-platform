@@ -64,6 +64,23 @@ jobs:
         run: pnpm build
       - name: Database integration checks
         run: pnpm test:integration
+      - name: Start API for authenticated historical PYQ acceptance
+        run: |
+          nohup pnpm --filter @net-slet/api start > /tmp/netslet-api.log 2>&1 &
+          echo $! > /tmp/netslet-api.pid
+          for attempt in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:4000/api/v1/health > /dev/null; then exit 0; fi
+            sleep 2
+          done
+          cat /tmp/netslet-api.log
+          exit 1
+      - name: Authenticated historical PYQ HTTP acceptance
+        env:
+          HISTORICAL_PYQ_HTTP_ACCEPTANCE: '1'
+        run: pnpm test:historical-pyq:http
+      - name: Stop API after authenticated acceptance
+        if: always()
+        run: if [ -f /tmp/netslet-api.pid ]; then kill "$(cat /tmp/netslet-api.pid)" || true; fi
       - name: Install Playwright browser
         run: pnpm exec playwright install --with-deps chromium
       - name: Browser journeys (Stage B, Sprint 1 and preview safety)
@@ -72,3 +89,7 @@ jobs:
         env:
           STAGE_B_CBT_E2E: ''
         run: pnpm exec playwright test tests/e2e/sprint2-acceptance.spec.ts
+      - name: Browser journeys (Release 1 PYQ governance and student acceptance)
+        env:
+          STAGE_B_CBT_E2E: ''
+        run: pnpm exec playwright test tests/e2e/sprint9-pyq-acceptance.spec.ts

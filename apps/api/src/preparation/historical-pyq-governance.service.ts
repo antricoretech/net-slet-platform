@@ -17,7 +17,7 @@ export class HistoricalPyqGovernanceService {
     return this.database.historicalQuestionMetadata.findMany({
       where: { governanceStatus: status ?? { in: [HistoricalMetadataGovernanceStatus.IMPORTED, HistoricalMetadataGovernanceStatus.VALIDATED, HistoricalMetadataGovernanceStatus.ACADEMICALLY_REVIEWED, HistoricalMetadataGovernanceStatus.RIGHTS_VERIFIED, HistoricalMetadataGovernanceStatus.APPROVED] } },
       orderBy: [{ updatedAt: 'asc' }, { id: 'asc' }], take: 100,
-      select: { id: true, questionVersionId: true, governanceStatus: true, recordStatus: true, verificationStatus: true, publicationEligible: true, revokedAt: true, subjectCode: true, examinationFamily: true, examCycle: { select: { code: true, examination: { select: { code: true } } } }, questionVersion: { select: { status: true, authoredById: true, languageCode: true } }, governanceApprovals: { orderBy: { createdAt: 'desc' }, take: 10, select: { type: true, status: true, reviewerId: true, evidenceReference: true, decisionAt: true } } },
+      select: { id: true, questionVersionId: true, governanceStatus: true, recordStatus: true, verificationStatus: true, publicationEligible: true, revokedAt: true, subjectCode: true, examinationFamily: true, sourceReference: true, sourceChecksum: true, examCycle: { select: { code: true, examination: { select: { code: true } } } }, questionVersion: { select: { status: true, authoredById: true, languageCode: true } }, governanceApprovals: { orderBy: { createdAt: 'desc' }, take: 10, select: { type: true, status: true, reviewerId: true, evidenceReference: true, decisionAt: true } } },
     });
   }
 
