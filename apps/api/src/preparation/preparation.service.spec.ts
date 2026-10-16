@@ -1,4 +1,4 @@
-import { PatternStatus, RightsStatus, SyllabusStatus, TestFormStatus } from '../generated/prisma/client';
+import { PatternStatus, RightsStatus, TestFormStatus } from '../generated/prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { PreparationService } from './preparation.service';
 
