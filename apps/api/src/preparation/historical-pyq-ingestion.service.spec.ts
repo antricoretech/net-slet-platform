@@ -18,7 +18,7 @@ describe('HistoricalPyqIngestionService', () => {
       $transaction: jest.fn(async (callback: (tx: typeof transaction) => Promise<unknown>) => callback(transaction)),
     };
     const service = new HistoricalPyqIngestionService(database as unknown as PrismaService);
-    const sourceChecksum = createHash('sha256').update('{"questionVersionId":"not-a-uuid"}').digest('hex');
+    const sourceChecksum = createHash('sha256').update('[{"questionVersionId":"not-a-uuid"}]').digest('hex');
     const result = await service.dryRun('admin-1', { sourceName: 'qa-fixture.json', sourceChecksum, format: 'JSON', records: [{ questionVersionId: 'not-a-uuid' }] });
     expect(result.status).toBe(HistoricalMetadataImportStatus.PARTIAL_REJECTED);
     expect(result.rejectedCount).toBe(1);
@@ -49,7 +49,7 @@ describe('HistoricalPyqIngestionService', () => {
       $transaction: jest.fn(async (callback: (tx: typeof transaction) => Promise<unknown>) => callback(transaction)),
     };
     const service = new HistoricalPyqIngestionService(database as unknown as PrismaService);
-    const sourceChecksum = createHash('sha256').update('{"questionVersionId":"invalid"}').digest('hex');
+    const sourceChecksum = createHash('sha256').update('[{"questionVersionId":"invalid"}]').digest('hex');
     const result = await service.dryRun('admin-1', { sourceName: 'qa-fixture.csv', sourceChecksum, format: 'CSV', csv: 'questionVersionId,sourceChecksum\ninvalid,' + sourceChecksum });
     expect(result.rejectedCount).toBe(1);
     expect(result.rows![0].rowNumber).toBe(1);
