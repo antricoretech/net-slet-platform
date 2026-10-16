@@ -82,7 +82,7 @@ describe('AttemptsService', () => {
     const service = new AttemptsService(database as unknown as PrismaService);
     const result = await service.saveAnswer('account-1', 'attempt-1', 'question-1', { selectedOptionIds: [], markedForReview: true, expectedRevision: 0, idempotencyKey: 'review-1' });
     expect(result.answer).toMatchObject({ selectedOptionIds: [], markedForReview: true });
-    expect(tx.attemptAnswer.upsert).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ create: expect.objectContaining({ markedForReview: true }), update: expect.objectContaining({ markedForReview: true }) }) }));
+    expect(tx.attemptAnswer.upsert).toHaveBeenCalledWith(expect.objectContaining({ create: expect.objectContaining({ markedForReview: true }), update: expect.objectContaining({ markedForReview: true }) }));
   });
 
   it('commits a due-session expiry before rejecting a late answer without writing it', async () => {
