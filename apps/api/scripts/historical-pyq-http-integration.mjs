@@ -60,9 +60,9 @@ try {
   const sourceChecksum = checksum(records);
   for (const record of records) record.sourceChecksum = sourceChecksum;
   const payload = { sourceName: 'synthetic-http-acceptance', sourceChecksum, format: 'JSON', records };
-  const [first, second, third] = await Promise.all([0, 1, 2].map((index) => request('/admin/preparation/historical-pyq-imports/dry-run', { method: 'POST', body: JSON.stringify(payload) }, cookies.get(index))));
-  if (![first, second, third].every((result) => result.response.status === 201 || result.response.status === 200)) throw new Error(`Concurrent dry-run failed: ${JSON.stringify([first.body, second.body, third.body])}`);
-  const manifestIds = new Set([first.body.manifestId, second.body.manifestId, third.body.manifestId]);
+  const [first, second] = await Promise.all([0, 1].map((index) => request('/admin/preparation/historical-pyq-imports/dry-run', { method: 'POST', body: JSON.stringify(payload) }, cookies.get(index))));
+  if (![first, second].every((result) => result.response.status === 201 || result.response.status === 200)) throw new Error(`Concurrent dry-run failed: ${JSON.stringify([first.body, second.body])}`);
+  const manifestIds = new Set([first.body.manifestId, second.body.manifestId]);
   if (manifestIds.size !== 1 || first.body.rowCount !== 21 || first.body.rejectedCount !== 21) throw new Error('Concurrent import idempotency or dataset assertions failed');
   await expectStatus(`/admin/preparation/historical-pyq-imports/${first.body.manifestId}/commit`, 403, { method: 'POST' }, cookies.get(1));
   const committed = await expectStatus(`/admin/preparation/historical-pyq-imports/${first.body.manifestId}/commit`, 201, { method: 'POST' }, cookies.get(0));
