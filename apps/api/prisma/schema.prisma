@@ -625,6 +625,7 @@ model PatternEvidence {
   patternVersion        ExamPatternVersion @relation(fields: [patternVersionId], references: [id], onDelete: Cascade)
   officialSourceUrl     String             @db.Text
   sourceDocumentHash    String             @db.VarChar(128)
+  retrievedAt           DateTime           @default(now())
   sourcePublishedAt     DateTime?
   effectiveAt           DateTime?
   officialDocumentTitle String             @default("") @db.VarChar(300)
@@ -733,6 +734,7 @@ model ExamRuleSource {
   sourceUrl         String             @db.Text
   evidenceExcerpt   String             @db.Text
   documentHash      String             @db.VarChar(128)
+  retrievedAt       DateTime           @default(now())
   artifactReference String?            @db.Text
   rightsNote        String?            @db.Text
   createdAt         DateTime           @default(now())
