@@ -69,6 +69,52 @@ describe('AttemptsService', () => {
     expect(tx.attempt.updateMany).not.toHaveBeenCalled();
   });
 
+  it('persists review state and allows a review-only answer mutation', async () => {
+    const attempt = attemptRecord();
+    const tx = {
+      attempt: { findFirst: jest.fn().mockResolvedValue(attempt), updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      attemptSession: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      attemptAnswerEvent: { findUnique: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue({}) },
+      attemptAnswer: { upsert: jest.fn().mockResolvedValue({ markedForReview: true }) },
+      auditEvent: { create: jest.fn().mockResolvedValue({}) },
+    };
+    const database = { $transaction: jest.fn(async (callback: (transaction: typeof tx) => unknown) => callback(tx)) };
+    const service = new AttemptsService(database as unknown as PrismaService);
+    const result = await service.saveAnswer('account-1', 'attempt-1', 'question-1', { selectedOptionIds: [], markedForReview: true, expectedRevision: 0, idempotencyKey: 'review-1' });
+    expect(result.answer).toMatchObject({ selectedOptionIds: [], markedForReview: true });
+    expect(tx.attemptAnswer.upsert).toHaveBeenCalledWith(expect.objectContaining({ create: expect.objectContaining({ markedForReview: true }), update: expect.objectContaining({ markedForReview: true }) }));
+  });
+
+  it('preserves an existing review marker when the legacy caller omits it', async () => {
+    const attempt = attemptRecord({ answers: [{ questionVersionId: 'question-1', selectedOptionIds: ['option-a'], markedForReview: true }] });
+    const tx = {
+      attempt: { findFirst: jest.fn().mockResolvedValue(attempt), updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      attemptSession: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      attemptAnswerEvent: { findUnique: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue({}) },
+      attemptAnswer: { upsert: jest.fn().mockResolvedValue({ markedForReview: true }) },
+      auditEvent: { create: jest.fn().mockResolvedValue({}) },
+    };
+    const database = { $transaction: jest.fn(async (callback: (transaction: typeof tx) => unknown) => callback(tx)) };
+    const result = await new AttemptsService(database as unknown as PrismaService).saveAnswer('account-1', 'attempt-1', 'question-1', { selectedOptionIds: ['option-b'], expectedRevision: 0, idempotencyKey: 'legacy-save-1' });
+    expect(result.answer.markedForReview).toBe(true);
+    expect(tx.attemptAnswer.upsert).toHaveBeenCalledWith(expect.objectContaining({ update: expect.objectContaining({ markedForReview: true }), create: expect.objectContaining({ markedForReview: true }) }));
+  });
+
+  it('explicitly removes an existing review marker', async () => {
+    const attempt = attemptRecord({ answers: [{ questionVersionId: 'question-1', selectedOptionIds: ['option-a'], markedForReview: true }] });
+    const tx = {
+      attempt: { findFirst: jest.fn().mockResolvedValue(attempt), updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      attemptSession: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      attemptAnswerEvent: { findUnique: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue({}) },
+      attemptAnswer: { upsert: jest.fn().mockResolvedValue({ markedForReview: false }) },
+      auditEvent: { create: jest.fn().mockResolvedValue({}) },
+    };
+    const database = { $transaction: jest.fn(async (callback: (transaction: typeof tx) => unknown) => callback(tx)) };
+    const result = await new AttemptsService(database as unknown as PrismaService).saveAnswer('account-1', 'attempt-1', 'question-1', { selectedOptionIds: ['option-b'], markedForReview: false, expectedRevision: 0, idempotencyKey: 'unmark-1' });
+    expect(result.answer.markedForReview).toBe(false);
+    expect(tx.attemptAnswer.upsert).toHaveBeenCalledWith(expect.objectContaining({ update: expect.objectContaining({ markedForReview: false }), create: expect.objectContaining({ markedForReview: false }) }));
+  });
+
   it('commits a due-session expiry before rejecting a late answer without writing it', async () => {
     const attempt = attemptRecord({ sessions: [{ ...attemptRecord().sessions[0], deadlineAt: new Date(Date.now() - 1_000) }] });
     const tx = {
