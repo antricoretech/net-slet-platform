@@ -1,4 +1,4 @@
-import { PatternStatus, RightsStatus, TestFormStatus } from '../generated/prisma/client';
+import { HistoricalMetadataVerificationStatus, PatternStatus, RightsStatus, TestFormStatus } from '../generated/prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { PreparationService } from './preparation.service';
 
@@ -29,22 +29,32 @@ describe('PreparationService', () => {
 
   it('restricts PYQ queries to published active records with cleared rights', async () => {
     const database = {
-      question: { findMany: jest.fn(async () => []) },
-      examCycle: { findMany: jest.fn(async () => []) },
-      questionVersion: { findMany: jest.fn(async () => []) },
+      historicalQuestionMetadata: { findMany: jest.fn(async () => []) },
     };
     await new PreparationService(database as unknown as PrismaService).pyqs('UGC_NET', { year: '2025' });
-    expect(database.question.findMany).toHaveBeenCalledWith(expect.objectContaining({
+    expect(database.historicalQuestionMetadata.findMany).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({
-        versions: {
-          some: {
-            status: 'PUBLISHED',
-            publication: { is: { status: 'ACTIVE' } },
-            provenance: { some: { rightsStatus: { in: [RightsStatus.OWNED, RightsStatus.LICENSED, RightsStatus.PERMISSION_GRANTED, RightsStatus.PUBLIC_DOMAIN] } } },
-          },
-        },
+        verificationStatus: HistoricalMetadataVerificationStatus.VERIFIED,
+        publicationEligible: true,
+        rightsStatus: { in: [RightsStatus.OWNED, RightsStatus.LICENSED, RightsStatus.PERMISSION_GRANTED, RightsStatus.PUBLIC_DOMAIN] },
       }),
     }));
+  });
+
+  it('uses explicit historical metadata and deterministic pagination without answer-key leakage', async () => {
+    const database = { historicalQuestionMetadata: { findMany: jest.fn(async () => [{ id: 'meta-1', questionVersionId: 'version-1', examCycle: { code: '2025-JUNE' }, authority: 'NTA', sourceYear: 2025, historicalCycle: 'JUNE', session: 'SHIFT_1', paper: 'PAPER_II', subjectCode: 'CS', questionPaperReference: 'paper-ref', questionSequence: 4, languageCode: 'en', sourceReference: 'official-ref', sourceChecksum: 'sha256', answerKeyProvenance: 'official-key-ref', rightsStatus: RightsStatus.OWNED, rightsScope: { use: 'practice' }, questionVersion: { publishedAt: new Date('2025-06-01'), reviews: [{ reviewerId: 'one' }, { reviewerId: 'two' }], answerKeys: [{ id: 'key' }], explanations: [{ id: 'explanation' }], mappings: [{ syllabusTopicId: 'topic' }], publication: { status: 'ACTIVE' } } }]) } };
+    const result = await new PreparationService(database as unknown as PrismaService).pyqs('UGC_NET', { page: '2', pageSize: '1', session: 'SHIFT_1' });
+    expect(result.pagination).toMatchObject({ page: 2, pageSize: 1, hasNextPage: false });
+    expect(result.data[0]).toMatchObject({ year: 2025, session: 'SHIFT_1', questionSequence: 4 });
+    expect(result.data[0]).not.toHaveProperty('correctAnswers');
+    expect(database.historicalQuestionMetadata.findMany).toHaveBeenCalledWith(expect.objectContaining({ skip: 1, take: 2, orderBy: [{ sourceYear: 'desc' }, { questionSequence: 'asc' }, { id: 'asc' }] }));
+  });
+
+  it('reports verified and publication-ready inventory for administrators', async () => {
+    const database = { historicalQuestionMetadata: { findMany: jest.fn(async () => [{ verificationStatus: HistoricalMetadataVerificationStatus.VERIFIED, publicationEligible: true, rightsStatus: RightsStatus.LICENSED, revokedAt: null, sourceYear: 2025, session: 'SHIFT_1', paper: 'PAPER_II', subjectCode: 'CS', languageCode: 'en', examCycle: { code: '2025-JUNE', examination: { code: 'UGC_NET', family: 'UGC_NET' } }, questionVersion: { status: 'PUBLISHED', publication: { status: 'ACTIVE' }, reviews: [{ reviewerId: 'one' }, { reviewerId: 'two' }], answerKeys: [{ id: 'key' }], explanations: [{ id: 'explanation' }], mappings: [{ id: 'mapping' }] } }]) } };
+    const result = await new PreparationService(database as unknown as PrismaService).historicalInventoryReadiness('UGC_NET');
+    expect(result.counts).toMatchObject({ totalMetadata: 1, verified: 1, publicationEligible: 1, rightsCleared: 1, published: 1, ready: 1 });
+    expect(result.byScope[0]).toMatchObject({ examinationCode: 'UGC_NET', ready: 1 });
   });
 
   it('computes topic practice from qualified persisted evidence', async () => {

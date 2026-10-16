@@ -88,6 +88,12 @@ enum RightsStatus {
   UNKNOWN
 }
 
+enum HistoricalMetadataVerificationStatus {
+  UNVERIFIED
+  VERIFIED
+  REJECTED
+}
+
 enum ChallengeCategory {
   INCORRECT_ANSWER_KEY
   AMBIGUOUS_QUESTION
@@ -294,6 +300,7 @@ model ExamCycle {
   subjects         ExamSubject[]
   syllabusVersions SyllabusVersion[]
   questions        Question[]
+  historicalQuestionMetadata HistoricalQuestionMetadata[]
   questionGroups   QuestionGroup[]
   testForms        TestForm[]
   createdAt        DateTime             @default(now())
@@ -341,6 +348,7 @@ model QuestionVersion {
   auditEvents  AuditEvent[]
   reviews      QuestionReview[]
   publication  QuestionPublication?
+  historicalMetadata HistoricalQuestionMetadata?
   challenges   QuestionChallenge[]
   testFormQuestions TestFormQuestion[]
   attemptAnswers    AttemptAnswer[]
@@ -357,6 +365,41 @@ model QuestionVersion {
   @@unique([questionId, version])
   @@index([status, type])
   @@index([groupId])
+}
+
+/// Authoritative, cycle-specific metadata for a historical question. A missing
+/// row means the legacy record is not yet verified; no value is inferred from
+/// a cycle code or question text.
+model HistoricalQuestionMetadata {
+  id                    String                              @id @default(uuid()) @db.Uuid
+  questionVersionId     String                              @unique @db.Uuid
+  questionVersion       QuestionVersion                     @relation(fields: [questionVersionId], references: [id], onDelete: Cascade)
+  examCycleId           String                              @db.Uuid
+  examCycle             ExamCycle                           @relation(fields: [examCycleId], references: [id], onDelete: Restrict)
+  examinationFamily     ExamFamilyCode
+  authority             String                              @db.VarChar(200)
+  sourceYear            Int?
+  historicalCycle       String?                             @db.VarChar(80)
+  session               String?                             @db.VarChar(80)
+  paper                 String?                             @db.VarChar(80)
+  subjectCode           String                              @db.VarChar(80)
+  questionPaperReference String?                            @db.Text
+  questionSequence      Int?
+  languageCode          String?                             @db.VarChar(20)
+  sourceReference       String?                             @db.Text
+  sourceChecksum        String?                             @db.VarChar(128)
+  answerKeyProvenance   String?                             @db.Text
+  rightsStatus          RightsStatus                        @default(UNKNOWN)
+  rightsScope           Json?
+  publicationEligible   Boolean                             @default(false)
+  verificationStatus    HistoricalMetadataVerificationStatus @default(UNVERIFIED)
+  verifiedAt            DateTime?
+  revokedAt             DateTime?
+  createdAt             DateTime                            @default(now())
+  updatedAt             DateTime                            @updatedAt
+
+  @@index([examCycleId, sourceYear, session, paper, subjectCode, languageCode])
+  @@index([verificationStatus, publicationEligible, rightsStatus])
 }
 
 model QuestionOption {
