@@ -74,6 +74,7 @@ try {
   console.log('Historical PYQ HTTP acceptance passed: authenticated governance access, role separation, 21-row concurrent dry-run idempotency, commit ownership, and CSV hardening.');
 } finally {
   if (accountIds?.length) {
+    await client.query('DELETE FROM "HistoricalMetadataImport" WHERE "createdById" = ANY($1::uuid[])', [accountIds]);
     await client.query('DELETE FROM "AuditEvent" WHERE "accountId" = ANY($1::uuid[])', [accountIds]);
     await client.query('DELETE FROM "Session" WHERE "accountId" = ANY($1::uuid[])', [accountIds]);
     await client.query('DELETE FROM "Account" WHERE id = ANY($1::uuid[])', [accountIds]);
