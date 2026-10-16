@@ -69,7 +69,7 @@ jobs:
           nohup pnpm --filter @net-slet/api start > /tmp/netslet-api.log 2>&1 &
           echo $! > /tmp/netslet-api.pid
           for attempt in {1..30}; do
-            if curl --fail --silent http://127.0.0.1:4000/api/v1/health > /dev/null; then exit 0; fi
+            if curl --fail --silent http://127.0.0.1:4000/api/v1/health/ready > /dev/null; then exit 0; fi
             sleep 2
           done
           cat /tmp/netslet-api.log
