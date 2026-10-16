@@ -10,9 +10,10 @@ import { SyllabusModule } from './syllabus/syllabus.module';
 import { QuestionModule } from './questions/question.module';
 import { AttemptsModule } from './attempts/attempts.module';
 import { ContentPublicationModule } from './content-publication/content-publication.module';
+import { PreparationModule } from './preparation/preparation.module';
 
 @Module({
-  imports: [ConfigModule.forRoot({ isGlobal: true, envFilePath: ['.env'] }), DatabaseModule, AuthModule, CatalogueModule, PatternModule, SyllabusModule, QuestionModule, AttemptsModule, ContentPublicationModule],
+  imports: [ConfigModule.forRoot({ isGlobal: true, envFilePath: ['.env'] }), DatabaseModule, AuthModule, CatalogueModule, PatternModule, SyllabusModule, QuestionModule, AttemptsModule, ContentPublicationModule, PreparationModule],
   controllers: [HealthController],
   providers: [HealthService],
 })

@@ -10,7 +10,7 @@ export default function HomePage() {
   return <main>
     <header className="topbar page-wrap">
       <div className="brand"><div className="brand-mark">N<span>/</span>S</div><div><strong>NET<span className="brand-slash">/</span>SLET</strong><small>Preparation Intelligence Platform</small></div></div>
-      <div className="header-right"><span className="status-dot" /><span>Foundation - Sprint 1 remediation</span><Link className="header-link" href="/sign-in">Student sign in</Link><Link className="header-link" href="/examinations">Examination catalogue &rarr;</Link></div>
+      <div className="header-right"><span className="status-dot" /><span>Continuous preparation preview</span><Link className="header-link" href="/sign-in">Student sign in</Link><Link className="header-link" href="/preparation">Student preparation</Link><Link className="header-link" href="/examinations">Examination catalogue &rarr;</Link></div>
     </header>
     <section className="hero page-wrap">
       <div className="eyebrow"><span className="eyebrow-line" />ENGINEERING FOUNDATION / OCTOBER 2026</div>
