@@ -108,3 +108,4 @@ export * from './prep-pilot';
 export * from './examdna';
 export * from './content-quality';
 export * from './content-release';
+export * from './result-governance';

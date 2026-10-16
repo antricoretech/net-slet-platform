@@ -164,6 +164,8 @@ enum AuditEventType {
   ATTEMPT_EXPIRED
   SCORE_RUN_CREATED
   RESULT_RELEASED
+  ANSWER_KEY_CORRECTION_APPROVED
+  RESULT_RESCORED
 }
 
 enum JurisdictionType {
@@ -316,6 +318,7 @@ model QuestionVersion {
   authoredBy   Account                      @relation("QuestionRevisionAuthors", fields: [authoredById], references: [id], onDelete: Restrict)
   options      QuestionOption[]
   answerKeys   QuestionAnswerKeyVersion[]
+  answerKeyCorrections AnswerKeyCorrection[]
   explanations QuestionExplanationVersion[]
   mappings     QuestionSyllabusMapping[]
   translations QuestionTranslation[]
@@ -366,6 +369,8 @@ model QuestionAnswerKeyVersion {
   createdById       String          @db.Uuid
   createdBy         Account           @relation("AnswerKeyAuthors", fields: [createdById], references: [id], onDelete: Restrict)
   testFormQuestions TestFormQuestion[]
+  originalCorrections AnswerKeyCorrection[] @relation("CorrectionOriginal")
+  revisedCorrections  AnswerKeyCorrection[] @relation("CorrectionRevised")
   createdAt         DateTime           @default(now())
 
   @@unique([questionVersionId, version])
@@ -772,6 +777,9 @@ model Account {
   mistakeMineEntries       MistakeMineEntry[]           @relation("MistakeMineOwners")
   learningTopicPerformance LearningTopicPerformance[]  @relation("LearningTopicPerformanceOwners")
   learningRecommendations  LearningRecommendation[]    @relation("LearningRecommendationOwners")
+  releasedResults          AttemptResult[]             @relation("ResultReleasers")
+  answerKeyCorrections     AnswerKeyCorrection[]       @relation("CorrectionAuthorizers")
+  authorizedRescores       ScoreRunLineage[]            @relation("RescoreAuthorizers")
 }
 
 model Session {
@@ -907,6 +915,7 @@ model Attempt {
   mistakeMineEntries  MistakeMineEntry[]
   learningRecommendations LearningRecommendation[]
   auditEvents         AuditEvent[]
+  scoreRunLineage      ScoreRunLineage[]
 
   @@unique([accountId, startIdempotencyKey])
   @@index([accountId, status, createdAt])
@@ -1006,6 +1015,8 @@ model ScoreRun {
   result            Json
   createdAt         DateTime      @default(now())
   publishedResult   AttemptResult?
+  originalRescores  ScoreRunLineage[] @relation("OriginalScoreRun")
+  revisedRescore    ScoreRunLineage? @relation("RevisedScoreRun")
 
   @@unique([attemptId, runNumber])
   @@unique([attemptId, scoreRunHash])
@@ -1020,8 +1031,51 @@ model AttemptResult {
   status     ResultReleaseStatus @default(PENDING)
   summary    Json
   releasedAt DateTime?
+  releasedById String? @db.Uuid
+  releasedBy Account? @relation("ResultReleasers", fields: [releasedById], references: [id], onDelete: SetNull)
+  releaseApprovalReference String? @db.VarChar(160)
+  releaseReason String? @db.Text
   createdAt  DateTime            @default(now())
   updatedAt  DateTime            @updatedAt
+}
+
+model AnswerKeyCorrection {
+  id String @id @default(uuid()) @db.Uuid
+  questionVersionId String @db.Uuid
+  questionVersion QuestionVersion @relation(fields: [questionVersionId], references: [id], onDelete: Restrict)
+  originalAnswerKeyVersionId String @db.Uuid
+  originalAnswerKeyVersion QuestionAnswerKeyVersion @relation("CorrectionOriginal", fields: [originalAnswerKeyVersionId], references: [id], onDelete: Restrict)
+  revisedAnswerKeyVersionId String @unique @db.Uuid
+  revisedAnswerKeyVersion QuestionAnswerKeyVersion @relation("CorrectionRevised", fields: [revisedAnswerKeyVersionId], references: [id], onDelete: Restrict)
+  authorizedById String @db.Uuid
+  authorizedBy Account @relation("CorrectionAuthorizers", fields: [authorizedById], references: [id], onDelete: Restrict)
+  reason String @db.Text
+  evidence Json
+  approvalReference String @unique @db.VarChar(160)
+  createdAt DateTime @default(now())
+
+  @@index([questionVersionId, createdAt])
+}
+
+model ScoreRunLineage {
+  id String @id @default(uuid()) @db.Uuid
+  attemptId String @db.Uuid
+  attempt Attempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  originalScoreRunId String @db.Uuid
+  originalScoreRun ScoreRun @relation("OriginalScoreRun", fields: [originalScoreRunId], references: [id], onDelete: Restrict)
+  revisedScoreRunId String @unique @db.Uuid
+  revisedScoreRun ScoreRun @relation("RevisedScoreRun", fields: [revisedScoreRunId], references: [id], onDelete: Restrict)
+  originalAnswerKeyReferences Json
+  revisedAnswerKeyReferences Json
+  reason String @db.Text
+  approvalReference String @db.VarChar(160)
+  idempotencyKey String @unique @db.VarChar(160)
+  authorizedById String @db.Uuid
+  authorizedBy Account @relation("RescoreAuthorizers", fields: [authorizedById], references: [id], onDelete: Restrict)
+  createdAt DateTime @default(now())
+
+  @@unique([attemptId, originalScoreRunId])
+  @@index([attemptId, createdAt])
 }
 
 model ResultExplanation {

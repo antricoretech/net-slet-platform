@@ -5,6 +5,8 @@ import { AttemptsController } from './attempts.controller';
 import { AttemptsService } from './attempts.service';
 import { ScoringService } from './scoring.service';
 import { LearningService } from './learning.service';
+import { ResultGovernanceController } from './result-governance.controller';
+import { ResultGovernanceService } from './result-governance.service';
 
-@Module({ imports: [DatabaseModule, AuthModule], controllers: [AttemptsController], providers: [AttemptsService, ScoringService, LearningService] })
+@Module({ imports: [DatabaseModule, AuthModule], controllers: [AttemptsController, ResultGovernanceController], providers: [AttemptsService, ScoringService, LearningService, ResultGovernanceService] })
 export class AttemptsModule {}
