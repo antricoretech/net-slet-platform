@@ -119,6 +119,19 @@ enum AccountRole {
   ADMIN
 }
 
+enum GovernanceApprovalType {
+  RESULT_PUBLICATION
+  ANSWER_KEY_CORRECTION
+  RESULT_RESCORE
+}
+
+enum GovernanceApprovalStatus {
+  APPROVED
+  REVOKED
+  SUPERSEDED
+  EXPIRED
+}
+
 enum AuditEventType {
   ACCOUNT_REGISTERED
   ACCOUNT_EMAIL_VERIFIED
@@ -319,6 +332,7 @@ model QuestionVersion {
   options      QuestionOption[]
   answerKeys   QuestionAnswerKeyVersion[]
   answerKeyCorrections AnswerKeyCorrection[]
+  governanceApprovals GovernanceApproval[]
   explanations QuestionExplanationVersion[]
   mappings     QuestionSyllabusMapping[]
   translations QuestionTranslation[]
@@ -780,6 +794,7 @@ model Account {
   releasedResults          AttemptResult[]             @relation("ResultReleasers")
   answerKeyCorrections     AnswerKeyCorrection[]       @relation("CorrectionAuthorizers")
   authorizedRescores       ScoreRunLineage[]            @relation("RescoreAuthorizers")
+  governanceApprovals      GovernanceApproval[]         @relation("GovernanceApprovalReviewers")
 }
 
 model Session {
@@ -916,6 +931,7 @@ model Attempt {
   learningRecommendations LearningRecommendation[]
   auditEvents         AuditEvent[]
   scoreRunLineage      ScoreRunLineage[]
+  governanceApprovals  GovernanceApproval[]
 
   @@unique([accountId, startIdempotencyKey])
   @@index([accountId, status, createdAt])
@@ -1052,10 +1068,38 @@ model AnswerKeyCorrection {
   reason String @db.Text
   evidence Json
   approvalReference String @unique @db.VarChar(160)
+  supersedesCorrectionId String? @db.Uuid
+  supersedesCorrection AnswerKeyCorrection? @relation("CorrectionSupersession", fields: [supersedesCorrectionId], references: [id], onDelete: Restrict)
+  supersededByCorrections AnswerKeyCorrection[] @relation("CorrectionSupersession")
   createdAt DateTime @default(now())
   rescoreLineages ScoreRunLineage[]
 
   @@index([questionVersionId, createdAt])
+}
+
+model GovernanceApproval {
+  id String @id @default(uuid()) @db.Uuid
+  approvalReference String @unique @db.VarChar(160)
+  type GovernanceApprovalType
+  status GovernanceApprovalStatus @default(APPROVED)
+  targetAttemptId String? @db.Uuid
+  targetAttempt Attempt? @relation(fields: [targetAttemptId], references: [id], onDelete: Restrict)
+  targetQuestionVersionId String? @db.Uuid
+  targetQuestionVersion QuestionVersion? @relation(fields: [targetQuestionVersionId], references: [id], onDelete: Restrict)
+  scope Json
+  reviewerId String @db.Uuid
+  reviewer Account @relation("GovernanceApprovalReviewers", fields: [reviewerId], references: [id], onDelete: Restrict)
+  reviewerRole AccountRole
+  decisionAt DateTime
+  evidenceReference String @db.Text
+  expiresAt DateTime?
+  revokedAt DateTime?
+  supersededAt DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([type, status, createdAt])
+  @@index([targetAttemptId, type])
+  @@index([targetQuestionVersionId, type])
 }
 
 model ScoreRunLineage {

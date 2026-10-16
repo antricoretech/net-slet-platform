@@ -1,5 +1,7 @@
 ALTER TYPE "AuditEventType" ADD VALUE 'ANSWER_KEY_CORRECTION_APPROVED';
 ALTER TYPE "AuditEventType" ADD VALUE 'RESULT_RESCORED';
+CREATE TYPE "GovernanceApprovalType" AS ENUM ('RESULT_PUBLICATION', 'ANSWER_KEY_CORRECTION', 'RESULT_RESCORE');
+CREATE TYPE "GovernanceApprovalStatus" AS ENUM ('APPROVED', 'REVOKED', 'SUPERSEDED', 'EXPIRED');
 
 ALTER TABLE "AttemptResult"
   ADD COLUMN "releasedById" UUID,
@@ -20,6 +22,7 @@ CREATE TABLE "AnswerKeyCorrection" (
   "reason" TEXT NOT NULL,
   "evidence" JSONB NOT NULL,
   "approvalReference" VARCHAR(160) NOT NULL,
+  "supersedesCorrectionId" UUID,
   "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT "AnswerKeyCorrection_pkey" PRIMARY KEY ("id")
 );
@@ -30,7 +33,36 @@ ALTER TABLE "AnswerKeyCorrection"
   ADD CONSTRAINT "AnswerKeyCorrection_questionVersionId_fkey" FOREIGN KEY ("questionVersionId") REFERENCES "QuestionVersion"("id") ON DELETE RESTRICT ON UPDATE CASCADE,
   ADD CONSTRAINT "AnswerKeyCorrection_originalAnswerKeyVersionId_fkey" FOREIGN KEY ("originalAnswerKeyVersionId") REFERENCES "QuestionAnswerKeyVersion"("id") ON DELETE RESTRICT ON UPDATE CASCADE,
   ADD CONSTRAINT "AnswerKeyCorrection_revisedAnswerKeyVersionId_fkey" FOREIGN KEY ("revisedAnswerKeyVersionId") REFERENCES "QuestionAnswerKeyVersion"("id") ON DELETE RESTRICT ON UPDATE CASCADE,
-  ADD CONSTRAINT "AnswerKeyCorrection_authorizedById_fkey" FOREIGN KEY ("authorizedById") REFERENCES "Account"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+  ADD CONSTRAINT "AnswerKeyCorrection_authorizedById_fkey" FOREIGN KEY ("authorizedById") REFERENCES "Account"("id") ON DELETE RESTRICT ON UPDATE CASCADE,
+  ADD CONSTRAINT "AnswerKeyCorrection_supersedesCorrectionId_fkey" FOREIGN KEY ("supersedesCorrectionId") REFERENCES "AnswerKeyCorrection"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+CREATE INDEX "AnswerKeyCorrection_supersedesCorrectionId_idx" ON "AnswerKeyCorrection"("supersedesCorrectionId");
+
+CREATE TABLE "GovernanceApproval" (
+  "id" UUID NOT NULL,
+  "approvalReference" VARCHAR(160) NOT NULL,
+  "type" "GovernanceApprovalType" NOT NULL,
+  "status" "GovernanceApprovalStatus" NOT NULL DEFAULT 'APPROVED',
+  "targetAttemptId" UUID,
+  "targetQuestionVersionId" UUID,
+  "scope" JSONB NOT NULL,
+  "reviewerId" UUID NOT NULL,
+  "reviewerRole" "AccountRole" NOT NULL,
+  "decisionAt" TIMESTAMP(3) NOT NULL,
+  "evidenceReference" TEXT NOT NULL,
+  "expiresAt" TIMESTAMP(3),
+  "revokedAt" TIMESTAMP(3),
+  "supersededAt" TIMESTAMP(3),
+  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT "GovernanceApproval_pkey" PRIMARY KEY ("id")
+);
+CREATE UNIQUE INDEX "GovernanceApproval_approvalReference_key" ON "GovernanceApproval"("approvalReference");
+CREATE INDEX "GovernanceApproval_type_status_createdAt_idx" ON "GovernanceApproval"("type", "status", "createdAt");
+CREATE INDEX "GovernanceApproval_targetAttemptId_type_idx" ON "GovernanceApproval"("targetAttemptId", "type");
+CREATE INDEX "GovernanceApproval_targetQuestionVersionId_type_idx" ON "GovernanceApproval"("targetQuestionVersionId", "type");
+ALTER TABLE "GovernanceApproval"
+  ADD CONSTRAINT "GovernanceApproval_targetAttemptId_fkey" FOREIGN KEY ("targetAttemptId") REFERENCES "Attempt"("id") ON DELETE RESTRICT ON UPDATE CASCADE,
+  ADD CONSTRAINT "GovernanceApproval_targetQuestionVersionId_fkey" FOREIGN KEY ("targetQuestionVersionId") REFERENCES "QuestionVersion"("id") ON DELETE RESTRICT ON UPDATE CASCADE,
+  ADD CONSTRAINT "GovernanceApproval_reviewerId_fkey" FOREIGN KEY ("reviewerId") REFERENCES "Account"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 CREATE TABLE "ScoreRunLineage" (
   "id" UUID NOT NULL,

@@ -36,7 +36,11 @@ export default async function globalSetup(_config: FullConfig) {
   const studentA = { email: `stageb-e2e-a-${suffix}@example.test`, id: await register(`stageb-e2e-a-${suffix}@example.test`, password) };
   const studentB = { email: `stageb-e2e-b-${suffix}@example.test`, id: await register(`stageb-e2e-b-${suffix}@example.test`, password) };
   const admin = { email: `stageb-e2e-admin-${suffix}@example.test`, id: await register(`stageb-e2e-admin-${suffix}@example.test`, password) };
+  const reviewer = { email: `stageb-e2e-reviewer-${suffix}@example.test`, id: await register(`stageb-e2e-reviewer-${suffix}@example.test`, password) };
+  const releaseReviewer = { email: `stageb-e2e-release-reviewer-${suffix}@example.test`, id: await register(`stageb-e2e-release-reviewer-${suffix}@example.test`, password) };
   await client.query('UPDATE "Account" SET role = \'ADMIN\' WHERE id = $1', [admin.id]);
+  await client.query('UPDATE "Account" SET role = \'SME\' WHERE id = $1', [reviewer.id]);
+  await client.query('UPDATE "Account" SET role = \'ADMIN\' WHERE id = $1', [releaseReviewer.id]);
   const organizerId = uuid();
   const examinationId = uuid();
   const cycleId = uuid();
@@ -72,5 +76,5 @@ export default async function globalSetup(_config: FullConfig) {
   }
   await client.end();
   fs.mkdirSync(path.dirname(outputPath), { recursive: true });
-  fs.writeFileSync(outputPath, JSON.stringify({ api, password, studentA, studentB, admin, examinationId, cycleId, forms: entities }, null, 2));
+  fs.writeFileSync(outputPath, JSON.stringify({ api, password, studentA, studentB, admin, reviewer, releaseReviewer, examinationId, cycleId, forms: entities }, null, 2));
 }

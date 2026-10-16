@@ -1,6 +1,6 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { canRescorePinnedForm, scoreConfiguredAttempt, type AnswerSelectionEvent, type PolicyScoringQuestion, type ScoringPolicyConfig } from '@net-slet/exam-rules';
-import { AttemptStatus, AuditEventType, Prisma, QuestionVersionStatus, ResultReleaseStatus } from '../generated/prisma/client';
+import { AccountRole, AttemptStatus, AuditEventType, GovernanceApprovalStatus, GovernanceApprovalType, Prisma, QuestionVersionStatus, ResultReleaseStatus } from '../generated/prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { LearningService } from './learning.service';
 
@@ -13,12 +13,6 @@ const approvalReference = (value: unknown): string => {
   if (!/^[A-Z][A-Z0-9._:-]{2,159}$/.test(reference)) throw new ConflictException('approvalReference must be an authorized record reference');
   return reference;
 };
-
-function approvalEvidence(value: unknown): Prisma.InputJsonValue {
-  const evidence = record(value);
-  if (typeof evidence.reviewerId !== 'string' || !evidence.reviewerId.trim() || evidence.decision !== 'APPROVED' || typeof evidence.reviewedAt !== 'string' || Number.isNaN(Date.parse(evidence.reviewedAt)) || typeof evidence.source !== 'string' || !evidence.source.trim()) throw new ConflictException('Evidence must identify an approving reviewer, decision, date and source');
-  return evidence as Prisma.InputJsonValue;
-}
 
 function parsePolicy(snapshot: unknown): ScoringPolicyConfig & { attemptCeilings?: Readonly<Record<string, number>> } {
   const config = record(record(snapshot).scoringPolicy);
@@ -46,6 +40,7 @@ export class ResultGovernanceService {
       const result = await tx.attemptResult.findFirst({ where: { attemptId }, include: { scoreRun: true, attempt: true } });
       if (!result) throw new NotFoundException('Result not found');
       if (result.status === ResultReleaseStatus.PUBLISHED) return this.publicResult(result);
+      await this.requireApproval(tx, approvalReferenceValue, GovernanceApprovalType.RESULT_PUBLICATION, actorId, { attemptId });
       if (result.attempt.status !== AttemptStatus.SUBMITTED && result.attempt.status !== AttemptStatus.EXPIRED) throw new ConflictException('Only terminal attempts may be published');
       const published = await tx.attemptResult.update({ where: { id: result.id }, data: { status: ResultReleaseStatus.PUBLISHED, releasedAt: new Date(), releasedById: actorId, releaseApprovalReference: approvalReferenceValue, releaseReason: reason }, include: { scoreRun: true } });
       await tx.auditEvent.create({ data: { type: AuditEventType.RESULT_RELEASED, accountId: actorId, attemptId, metadata: { resultId: result.id, approvalReference: approvalReferenceValue, reason, priorStatus: result.status } } });
@@ -57,18 +52,22 @@ export class ResultGovernanceService {
     const body = record(input);
     const reason = text(body.reason, 'reason');
     const approvalReferenceValue = approvalReference(body.approvalReference);
-    const evidence = approvalEvidence(body.evidence);
     const correctAnswers = strings(body.correctAnswers);
     if (!correctAnswers.length) throw new ConflictException('At least one corrected answer is required');
     return this.database.$transaction(async (tx) => {
-      const revision = await tx.questionVersion.findUnique({ where: { id: questionVersionId }, include: { answerKeys: { orderBy: { version: 'desc' }, take: 1 }, options: true, question: true } });
+      const revision = await tx.questionVersion.findUnique({ where: { id: questionVersionId }, include: { answerKeys: { orderBy: { version: 'desc' }, take: 1 }, answerKeyCorrections: { orderBy: { createdAt: 'desc' }, take: 1 }, options: true, question: true } });
       if (!revision || !revision.answerKeys[0]) throw new NotFoundException('Approved answer key not found');
       if (revision.status !== QuestionVersionStatus.PUBLISHED) throw new ConflictException('Only published question revisions may receive a correction');
       const normalizedAnswers = correctAnswers.map((answer) => revision.options.find((option) => option.id === answer || option.optionKey === answer)?.id);
       if (normalizedAnswers.some((answer): answer is undefined => !answer)) throw new ConflictException('Correction references an option outside the question version');
       const original = revision.answerKeys[0];
+      const latestCorrection = revision.answerKeyCorrections[0];
+      const latestAnswers = latestCorrection ? strings((await tx.questionAnswerKeyVersion.findUnique({ where: { id: latestCorrection.revisedAnswerKeyVersionId } }))?.correctAnswers) : strings(original.correctAnswers);
+      if (latestAnswers.length === normalizedAnswers.length && latestAnswers.every((answer) => normalizedAnswers.includes(answer))) throw new ConflictException('An identical answer-key correction already exists');
+      const approval = await this.requireApproval(tx, approvalReferenceValue, GovernanceApprovalType.ANSWER_KEY_CORRECTION, actorId, { questionVersionId });
+      const trustedEvidence = { approvalReference: approval.approvalReference, evidenceReference: approval.evidenceReference, reviewerId: approval.reviewerId, reviewerRole: approval.reviewerRole, decisionAt: approval.decisionAt.toISOString() };
       const revised = await tx.questionAnswerKeyVersion.create({ data: { questionVersionId, version: original.version + 1, correctAnswers: normalizedAnswers as unknown as Prisma.InputJsonValue, exactMatch: body.exactMatch === true, createdById: actorId } });
-      const correction = await tx.answerKeyCorrection.create({ data: { questionVersionId, originalAnswerKeyVersionId: original.id, revisedAnswerKeyVersionId: revised.id, authorizedById: actorId, reason, evidence, approvalReference: approvalReferenceValue } });
+      const correction = await tx.answerKeyCorrection.create({ data: { questionVersionId, originalAnswerKeyVersionId: original.id, revisedAnswerKeyVersionId: revised.id, supersedesCorrectionId: latestCorrection?.id, authorizedById: actorId, reason, evidence: trustedEvidence, approvalReference: approvalReferenceValue } });
       await tx.auditEvent.create({ data: { type: AuditEventType.ANSWER_KEY_CORRECTION_APPROVED, accountId: actorId, questionVersionId, metadata: { correctionId: correction.id, originalAnswerKeyVersionId: original.id, revisedAnswerKeyVersionId: revised.id, approvalReference: approvalReferenceValue } } });
       return { correctionId: correction.id, questionVersionId, originalAnswerKeyVersionId: original.id, revisedAnswerKeyVersionId: revised.id, approvalReference: approvalReferenceValue };
     });
@@ -82,23 +81,27 @@ export class ResultGovernanceService {
     const idempotencyKey = text(body.idempotencyKey, 'idempotencyKey');
     return this.database.$transaction(async (tx) => {
       await this.lock(tx, attemptId);
+      const correction = await tx.answerKeyCorrection.findUnique({ where: { id: correctionId }, include: { originalAnswerKeyVersion: true, revisedAnswerKeyVersion: true } });
+      if (!correction) throw new NotFoundException('Answer-key correction not found');
+      await this.requireApproval(tx, approvalReferenceValue, GovernanceApprovalType.RESULT_RESCORE, actorId, { attemptId, questionVersionId: correction.questionVersionId, correctionId });
       const existing = await tx.scoreRunLineage.findUnique({ where: { idempotencyKey }, include: { revisedScoreRun: true } });
       if (existing) {
         if (existing.attemptId !== attemptId || existing.correctionId !== correctionId || existing.approvalReference !== approvalReferenceValue || existing.reason !== reason) throw new ConflictException('Idempotency key was already used for a different rescore request');
         return { attemptId, status: 'IDEMPOTENT', lineageId: existing.id, scoreRunReference: existing.revisedScoreRun.scoreRunHash };
       }
-      const correction = await tx.answerKeyCorrection.findUnique({ where: { id: correctionId }, include: { originalAnswerKeyVersion: true, revisedAnswerKeyVersion: true } });
-      if (!correction) throw new NotFoundException('Answer-key correction not found');
       const attempt = await tx.attempt.findUnique({ where: { id: attemptId }, include: { result: { include: { scoreRun: true } }, answerEvents: { orderBy: { sequence: 'asc' } }, testForm: { include: { questions: { orderBy: { sequence: 'asc' }, include: { answerKeyVersion: true } } } } } });
       if (!attempt?.result?.scoreRun) throw new ConflictException('A scored terminal attempt is required');
       if (attempt.status !== AttemptStatus.SUBMITTED && attempt.status !== AttemptStatus.EXPIRED) throw new ConflictException('Only terminal attempts may be rescored');
       const correctedFormQuestion = attempt.testForm.questions.find((question) => question.questionVersionId === correction.questionVersionId);
-      if (!correctedFormQuestion || !canRescorePinnedForm(correctedFormQuestion.answerKeyVersionId, correctedFormQuestion.answerKeyVersionId, correction.originalAnswerKeyVersionId)) throw new ConflictException('Correction is not pinned to this test form');
+      const priorLineage = await tx.scoreRunLineage.findFirst({ where: { attemptId }, orderBy: { createdAt: 'desc' } });
+      const priorReferences = Array.isArray(priorLineage?.revisedAnswerKeyReferences) ? priorLineage.revisedAnswerKeyReferences as Array<{ questionVersionId: string; answerKeyVersionId: string }> : [];
+      const priorEffective = priorReferences.find((item) => item.questionVersionId === correction.questionVersionId);
+      if (!correctedFormQuestion || (!priorLineage && !canRescorePinnedForm(correctedFormQuestion.answerKeyVersionId, correctedFormQuestion.answerKeyVersionId, correction.originalAnswerKeyVersionId)) || (priorLineage && priorEffective?.answerKeyVersionId !== correction.originalAnswerKeyVersionId)) throw new ConflictException('Correction is not the next authorized key for this test form');
       const snapshot = record(attempt.testForm.snapshot);
       const policy = parsePolicy(snapshot);
       const sessions = Array.isArray(snapshot.sessions) ? snapshot.sessions : [];
       const sectionPolicy = (sessionKey: string, sectionKey: string) => { const session = sessions.map(record).find((item) => item.key === sessionKey); const section = Array.isArray(session?.sections) ? session.sections.map(record).find((item) => item.key === sectionKey) : undefined; if (typeof section?.answerPolicy !== 'string') throw new ConflictException('Test-form answer policy is missing'); return section.answerPolicy as PolicyScoringQuestion['policy']; };
-      const keyRefs = attempt.testForm.questions.map((item) => { const key = item.questionVersionId === correction.questionVersionId ? correction.revisedAnswerKeyVersion : item.answerKeyVersion; if (!key) throw new ConflictException('Pinned answer key is missing'); const questionSnapshot = record(item.snapshot); const optionIds = Array.isArray(questionSnapshot.options) ? questionSnapshot.options.map(record).map((option) => option.id).filter((id): id is string => typeof id === 'string') : []; return { questionVersionId: item.questionVersionId, answerKeyVersionId: key.id, version: key.version, paperKey: item.sessionKey, sectionKey: item.sectionKey, policy: sectionPolicy(item.sessionKey, item.sectionKey), optionIds, correctAnswers: strings(key.correctAnswers) }; });
+      const keyRefs = await Promise.all(attempt.testForm.questions.map(async (item) => { const priorRef = priorReferences.find((reference) => reference.questionVersionId === item.questionVersionId); const key = item.questionVersionId === correction.questionVersionId ? correction.revisedAnswerKeyVersion : priorRef ? await tx.questionAnswerKeyVersion.findUnique({ where: { id: priorRef.answerKeyVersionId } }) : item.answerKeyVersion; if (!key) throw new ConflictException('Pinned answer key is missing'); const questionSnapshot = record(item.snapshot); const optionIds = Array.isArray(questionSnapshot.options) ? questionSnapshot.options.map(record).map((option) => option.id).filter((id): id is string => typeof id === 'string') : []; return { questionVersionId: item.questionVersionId, answerKeyVersionId: key.id, version: key.version, paperKey: item.sessionKey, sectionKey: item.sectionKey, policy: sectionPolicy(item.sessionKey, item.sectionKey), optionIds, correctAnswers: strings(key.correctAnswers) }; }));
       const questions: PolicyScoringQuestion[] = keyRefs.map((item) => ({ questionVersionId: item.questionVersionId, paperKey: item.paperKey, sectionKey: item.sectionKey, policy: item.policy, optionIds: item.optionIds, correctOptionIds: item.correctAnswers }));
       const events: AnswerSelectionEvent[] = attempt.answerEvents.map((event) => ({ sequence: event.sequence, questionVersionId: event.questionVersionId, selectedOptionIds: strings(event.selectedOptionIds), occurredAt: event.occurredAt.toISOString(), idempotencyKey: event.idempotencyKey }));
       const scored = scoreConfiguredAttempt({ policy, questions, events, attemptCeilings: policy.attemptCeilings });
@@ -106,7 +109,8 @@ export class ResultGovernanceService {
       const current = attempt.result;
       const summary = { scoreRunReference: run.scoreRunHash, policyId: scored.policyId, policyVersion: scored.policyVersion, scale: scored.scale, totalMarksScaled: scored.totalMarksScaled, maximumMarksScaled: scored.maximumMarksScaled, correct: scored.correct, incorrect: scored.incorrect, unattempted: scored.unattempted, attempted: scored.attempted, dropped: scored.dropped, papers: scored.papers };
       await tx.attemptResult.update({ where: { id: current.id }, data: { scoreRunId: run.id, summary: summary as unknown as Prisma.InputJsonValue } });
-      const lineage = await tx.scoreRunLineage.create({ data: { attemptId, originalScoreRunId: current.scoreRunId!, revisedScoreRunId: run.id, correctionId, originalAnswerKeyReferences: attempt.testForm.questions.map((item) => ({ questionVersionId: item.questionVersionId, answerKeyVersionId: item.answerKeyVersionId })), revisedAnswerKeyReferences: keyRefs.map((item) => ({ questionVersionId: item.questionVersionId, answerKeyVersionId: item.answerKeyVersionId, version: item.version })), reason, approvalReference: approvalReferenceValue, idempotencyKey, authorizedById: actorId } });
+      const originalReferences = priorReferences.length ? priorReferences : attempt.testForm.questions.map((item) => ({ questionVersionId: item.questionVersionId, answerKeyVersionId: item.answerKeyVersionId }));
+      const lineage = await tx.scoreRunLineage.create({ data: { attemptId, originalScoreRunId: current.scoreRunId!, revisedScoreRunId: run.id, correctionId, originalAnswerKeyReferences: originalReferences, revisedAnswerKeyReferences: keyRefs.map((item) => ({ questionVersionId: item.questionVersionId, answerKeyVersionId: item.answerKeyVersionId, version: item.version })), reason, approvalReference: approvalReferenceValue, idempotencyKey, authorizedById: actorId } });
       await tx.auditEvent.create({ data: { type: AuditEventType.RESULT_RESCORED, accountId: actorId, attemptId, metadata: { lineageId: lineage.id, correctionId, originalScoreRunId: current.scoreRunId, revisedScoreRunId: run.id, approvalReference: approvalReferenceValue } } });
       await this.learning.rebuildForAttempt(tx, attempt.accountId, attemptId);
       return { attemptId, status: 'RESCORED', lineageId: lineage.id, scoreRunReference: run.scoreRunHash, releaseStatus: current.status };
@@ -115,4 +119,14 @@ export class ResultGovernanceService {
 
   private publicResult(result: { attemptId: string; status: ResultReleaseStatus; releasedAt?: Date | null; releaseApprovalReference?: string | null }) { return { attemptId: result.attemptId, status: result.status, releasedAt: result.releasedAt ?? null, releaseApprovalReference: result.status === ResultReleaseStatus.PUBLISHED ? result.releaseApprovalReference : null }; }
   private async lock(tx: Prisma.TransactionClient, attemptId: string) { await tx.$executeRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${attemptId}, 0))`); }
+  private async requireApproval(tx: Prisma.TransactionClient, reference: string, type: GovernanceApprovalType, actorId: string, target: { attemptId?: string; questionVersionId?: string; correctionId?: string }) {
+    const approval = await tx.governanceApproval.findUnique({ where: { approvalReference: reference }, include: { reviewer: { select: { id: true, role: true } } } });
+    if (!approval || approval.type !== type || approval.status !== GovernanceApprovalStatus.APPROVED || approval.revokedAt || approval.supersededAt || (approval.expiresAt && approval.expiresAt <= new Date()) || approval.decisionAt > new Date()) throw new ConflictException('A current approved governance record is required');
+    const requiredRole = type === GovernanceApprovalType.ANSWER_KEY_CORRECTION ? AccountRole.SME : AccountRole.ADMIN;
+    if (approval.reviewerId === actorId || approval.reviewer.role !== approval.reviewerRole || approval.reviewerRole !== requiredRole) throw new ConflictException('Approval separation of duties or reviewer role is invalid');
+    if ((target.attemptId && approval.targetAttemptId !== target.attemptId) || (target.questionVersionId && approval.targetQuestionVersionId !== target.questionVersionId)) throw new ConflictException('Approval scope does not match the requested operation');
+    const scope = record(approval.scope);
+    if (target.correctionId && scope.correctionId !== target.correctionId) throw new ConflictException('Approval scope does not match the requested correction');
+    return approval;
+  }
 }
