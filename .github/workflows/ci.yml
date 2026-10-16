@@ -80,7 +80,9 @@ jobs:
         run: pnpm test:historical-pyq:http
       - name: Stop API after authenticated acceptance
         if: always()
-        run: if [ -f /tmp/netslet-api.pid ]; then kill "$(cat /tmp/netslet-api.pid)" || true; fi
+        run: |
+          if [ -f /tmp/netslet-api.pid ]; then kill "$(cat /tmp/netslet-api.pid)" || true; fi
+          pkill -f '/apps/api/dist/main.js' || true
       - name: Install Playwright browser
         run: pnpm exec playwright install --with-deps chromium
       - name: Browser journeys (Stage B, Sprint 1 and preview safety)
