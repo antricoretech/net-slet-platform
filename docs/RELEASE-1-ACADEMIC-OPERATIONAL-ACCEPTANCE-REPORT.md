@@ -5,7 +5,7 @@
 - PR #6 G13: open at `4440f8904448ba09fe9c6348ab62564e3f7d3b44`; required owner reviews are not recorded, so it was not merged.
 - PR #7 readiness: open at `dc6c7e4ef1e0cd0161d2bd18a7da599582ad91c1`; CI run `38871856515` and production-readiness run `38872149407` passed.
 - This sprint branch: `feature/release-1-acceptance-sprint`, commit `53df3e58449e1f4a5ff97604ee6424d3a55f3131`, stacked on PR #7.
-- PR #8: open, base `feature/release-1-readiness`; PR CI run `38875388003` passed and production-readiness run `38875627153` passed at the exact head. No merge, deployment or active-database operation is authorized.
+- PR #8: open, base `feature/release-1-readiness`; final-head PR CI run `38876238108` passed and production-readiness run `38876522429` passed at `87aebc59762d070d4ee5ee98ce72b98dfeb15eb6`. No merge, deployment or active-database operation is authorized.
 
 ## B. Academic acceptance
 
