@@ -1,6 +1,6 @@
 import { PatternStatus, PublicationStatus, QuestionVersionStatus, RightsStatus } from '../generated/prisma/client';
 
-export const CLEARED_RIGHTS = [RightsStatus.OWNED, RightsStatus.LICENSED, RightsStatus.PERMISSION_GRANTED, RightsStatus.PUBLIC_DOMAIN] as const;
+export const CLEARED_RIGHTS: RightsStatus[] = [RightsStatus.OWNED, RightsStatus.LICENSED, RightsStatus.PERMISSION_GRANTED, RightsStatus.PUBLIC_DOMAIN];
 
 export type QuestionEligibilityEvidence = {
   status: QuestionVersionStatus | string;
