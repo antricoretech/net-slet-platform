@@ -28,8 +28,22 @@ describe('PreparationService', () => {
   });
 
   it('restricts PYQ queries to published active records with cleared rights', async () => {
-    const database = { question: { findMany: jest.fn(async () => []) } };
+    const database = {
+      question: { findMany: jest.fn(async () => []) },
+      examCycle: { findMany: jest.fn(async () => []) },
+      questionVersion: { findMany: jest.fn(async () => []) },
+    };
     await new PreparationService(database as unknown as PrismaService).pyqs('UGC_NET', { year: '2025' });
-    expect(database.question.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ versions: { some: { status: 'PUBLISHED', publication: { is: { status: 'ACTIVE' } }, provenance: { some: { rightsStatus: { in: [RightsStatus.OWNED, RightsStatus.LICENSED, RightsStatus.PERMISSION_GRANTED, RightsStatus.PUBLIC_DOMAIN] } } } } } })));
+    expect(database.question.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        versions: {
+          some: {
+            status: 'PUBLISHED',
+            publication: { is: { status: 'ACTIVE' } },
+            provenance: { some: { rightsStatus: { in: [RightsStatus.OWNED, RightsStatus.LICENSED, RightsStatus.PERMISSION_GRANTED, RightsStatus.PUBLIC_DOMAIN] } } },
+          },
+        },
+      }),
+    }));
   });
 });
