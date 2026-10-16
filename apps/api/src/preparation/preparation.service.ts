@@ -1,13 +1,14 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { HistoricalMetadataVerificationStatus, PatternStatus, PublicationStatus, QuestionVersionStatus, ReviewDecision, SyllabusStatus, TestFormStatus } from '../generated/prisma/client';
+import { HistoricalMetadataRecordStatus, HistoricalMetadataVerificationStatus, PatternStatus, PublicationStatus, QuestionVersionStatus, ReviewDecision, SyllabusStatus, TestFormStatus } from '../generated/prisma/client';
 import { resolveCurrentPattern, type PreparationPatternCandidate } from '@net-slet/exam-rules';
 import { PrismaService } from '../database/prisma.service';
-import { CLEARED_RIGHTS, evaluateFormEligibility, evaluateQuestionEligibility } from './eligibility';
+import { CLEARED_RIGHTS, evaluateFormEligibility, evaluateHistoricalMetadataEligibility, evaluateQuestionEligibility } from './eligibility';
 
 const code = (value: string) => value.trim().toUpperCase();
 const stringQuery = (value: unknown) => typeof value === 'string' && value.trim() ? value.trim() : undefined;
 const integerQuery = (value: unknown) => typeof value === 'string' && /^\d{4}$/.test(value) ? Number(value) : undefined;
 const positiveIntegerQuery = (value: unknown, fallback: number, maximum: number) => typeof value === 'string' && /^\d+$/.test(value) ? Math.min(Math.max(Number(value), 1), maximum) : fallback;
+const MAX_HISTORICAL_PYQ_SCAN = 10001;
 
 @Injectable()
 export class PreparationService {
@@ -79,7 +80,7 @@ export class PreparationService {
     const paper = stringQuery(query.paper);
     const language = stringQuery(query.language);
     const year = integerQuery(query.year);
-    const page = positiveIntegerQuery(query.page, 1, 100000);
+    const page = positiveIntegerQuery(query.page, 1, 100);
     const pageSize = positiveIntegerQuery(query.pageSize, 20, 100);
     const metadata = await this.database.historicalQuestionMetadata.findMany({
       where: {
@@ -95,13 +96,19 @@ export class PreparationService {
         rightsStatus: { in: [...CLEARED_RIGHTS] },
         questionVersion: { status: QuestionVersionStatus.PUBLISHED, publication: { is: { status: PublicationStatus.ACTIVE } }, answerKeys: { some: {} }, explanations: { some: {} }, mappings: { some: {} } },
       },
-      select: { id: true, questionVersionId: true, examCycle: { select: { code: true } }, examinationFamily: true, authority: true, sourceYear: true, historicalCycle: true, session: true, paper: true, subjectCode: true, questionPaperReference: true, questionSequence: true, languageCode: true, sourceReference: true, sourceChecksum: true, answerKeyProvenance: true, rightsStatus: true, rightsScope: true, questionVersion: { select: { publishedAt: true, reviews: { where: { decision: ReviewDecision.APPROVED }, select: { reviewerId: true } }, answerKeys: { select: { id: true } }, explanations: { select: { id: true } }, mappings: { select: { syllabusTopicId: true } }, publication: { select: { status: true } } } } },
+      select: { id: true, questionVersionId: true, examinationFamily: true, authority: true, sourceYear: true, historicalCycle: true, session: true, paper: true, subjectCode: true, questionPaperReference: true, questionSequence: true, languageCode: true, sourceReference: true, sourceChecksum: true, answerKeyProvenance: true, rightsStatus: true, rightsScope: true, rightsExpiresAt: true, revokedAt: true, recordStatus: true, verificationStatus: true, publicationEligible: true, examCycle: { select: { code: true, examination: { select: { family: true } } } }, questionVersion: { select: { languageCode: true, publishedAt: true, question: { select: { subjectCode: true } }, translations: { where: { status: 'APPROVED' }, select: { languageCode: true } }, reviews: { where: { decision: ReviewDecision.APPROVED }, select: { reviewerId: true } }, answerKeys: { select: { id: true } }, explanations: { select: { id: true } }, mappings: { select: { syllabusTopicId: true } }, publication: { select: { status: true } } } } },
       orderBy: [{ sourceYear: 'desc' }, { questionSequence: 'asc' }, { id: 'asc' }],
-      skip: (page - 1) * pageSize,
-      take: pageSize + 1,
+      take: MAX_HISTORICAL_PYQ_SCAN,
     });
-    const hasNextPage = metadata.length > pageSize;
-    const visible = (hasNextPage ? metadata.slice(0, pageSize) : metadata).filter((item) => evaluateQuestionEligibility({ status: QuestionVersionStatus.PUBLISHED, publicationStatus: item.questionVersion.publication?.status, answerKeyCount: item.questionVersion.answerKeys.length, explanationCount: item.questionVersion.explanations.length, mappingCount: item.questionVersion.mappings.length, provenanceRights: [item.rightsStatus], approvedReviewerIds: item.questionVersion.reviews.map((review) => review.reviewerId) }).eligible);
+    const eligible = metadata.filter((item) => {
+      const requestedLanguage = language ?? item.languageCode ?? item.questionVersion.languageCode;
+      const languageAuthorized = !requestedLanguage || item.questionVersion.languageCode.toLowerCase() === requestedLanguage.toLowerCase() || item.questionVersion.translations.some((translation) => translation.languageCode.toLowerCase() === requestedLanguage.toLowerCase());
+      const decision = evaluateHistoricalMetadataEligibility({ verificationStatus: item.verificationStatus, recordStatus: item.recordStatus, publicationEligible: item.publicationEligible, rightsStatus: item.rightsStatus, rightsScope: item.rightsScope, rightsExpiresAt: item.rightsExpiresAt, revokedAt: item.revokedAt, requestedLanguage, examinationFamilyMatches: item.examinationFamily === item.examCycle.examination.family, subjectMatches: item.subjectCode === item.questionVersion.question.subjectCode, question: { status: QuestionVersionStatus.PUBLISHED, publicationStatus: item.questionVersion.publication?.status, answerKeyCount: item.questionVersion.answerKeys.length, explanationCount: item.questionVersion.explanations.length, mappingCount: item.questionVersion.mappings.length, provenanceRights: [item.rightsStatus], approvedReviewerIds: item.questionVersion.reviews.map((review) => review.reviewerId) } });
+      return languageAuthorized && decision.eligible;
+    });
+    const start = (page - 1) * pageSize;
+    const visible = eligible.slice(start, start + pageSize);
+    const hasNextPage = eligible.length > start + pageSize || metadata.length === MAX_HISTORICAL_PYQ_SCAN;
     return { data: visible.map((item) => ({ questionId: item.questionVersionId, questionVersionId: item.questionVersionId, examinationCode: code(examinationCode), examinationFamily: item.examinationFamily, cycleCode: item.examCycle.code, authority: item.authority, year: item.sourceYear, cycle: item.historicalCycle, session: item.session, paper: item.paper, subjectCode: item.subjectCode, questionPaperReference: item.questionPaperReference, questionSequence: item.questionSequence, language: item.languageCode, sourceReference: item.sourceReference, sourceChecksum: item.sourceChecksum, answerKeyProvenance: item.answerKeyProvenance, rightsStatus: item.rightsStatus, rightsScope: item.rightsScope, publishedAt: item.questionVersion.publishedAt })), pagination: { page, pageSize, returned: visible.length, hasNextPage }, filters: { year, cycleCode, session, paper, language, subjectCode }, rightsPolicy: 'VERIFIED_METADATA_AND_CLEARED_RIGHTS_ONLY', notices: visible.length ? [] : ['No verified rights-cleared historical questions match these filters.'] };
   }
 
@@ -109,6 +116,7 @@ export class PreparationService {
     const records = await this.database.historicalQuestionMetadata.findMany({
       where: examinationCode ? { examCycle: { examination: { code: code(examinationCode) } } } : {},
       select: {
+        recordStatus: true,
         verificationStatus: true,
         publicationEligible: true,
         rightsStatus: true,
@@ -119,34 +127,47 @@ export class PreparationService {
         subjectCode: true,
         languageCode: true,
         examinationFamily: true,
+        rightsScope: true,
+        rightsExpiresAt: true,
         examCycle: { select: { code: true, examination: { select: { code: true, family: true } } } },
         questionVersion: {
           select: {
             status: true,
+            question: { select: { subjectCode: true } },
+            languageCode: true,
+            translations: { where: { status: 'APPROVED' }, select: { languageCode: true } },
             publication: { select: { status: true } },
             reviews: { where: { decision: ReviewDecision.APPROVED }, select: { reviewerId: true } },
             answerKeys: { select: { id: true } },
             explanations: { select: { id: true } },
-            mappings: { select: { id: true } },
+            mappings: { select: { syllabusTopic: { select: { code: true, title: true, subjectUnit: { select: { code: true, title: true } } } } } },
           },
         },
       },
     });
-    const counts = { totalMetadata: records.length, verified: 0, publicationEligible: 0, rightsCleared: 0, revoked: 0, published: 0, ready: 0 };
-    const byScope = new Map<string, { examinationCode: string; family: string; cycleCode: string; subjectCode: string; paper: string; language: string; total: number; ready: number }>();
+    const counts = { imported: records.length, validated: 0, verified: 0, reviewPending: 0, rightsPending: 0, rejected: 0, duplicated: 0, revoked: 0, publicationReady: 0, totalMetadata: records.length };
+    const byScope = new Map<string, { examinationCode: string; family: string; cycleCode: string; subjectCode: string; paper: string; language: string; unit: string; topic: string; reviewStatus: string; rightsStatus: string; sourceVerification: string; publicationEligible: boolean; total: number; ready: number }>();
     for (const item of records) {
+      if (item.recordStatus === HistoricalMetadataRecordStatus.VALIDATED || item.recordStatus === HistoricalMetadataRecordStatus.VERIFIED) counts.validated++;
       if (item.verificationStatus === HistoricalMetadataVerificationStatus.VERIFIED) counts.verified++;
-      if (item.publicationEligible) counts.publicationEligible++;
-      if (CLEARED_RIGHTS.includes(item.rightsStatus)) counts.rightsCleared++;
+      if (item.recordStatus === HistoricalMetadataRecordStatus.REJECTED) counts.rejected++;
+      if (item.recordStatus === HistoricalMetadataRecordStatus.DUPLICATE) counts.duplicated++;
       if (item.revokedAt) counts.revoked++;
-      if (item.questionVersion.status === QuestionVersionStatus.PUBLISHED && item.questionVersion.publication?.status === PublicationStatus.ACTIVE) counts.published++;
-      const ready = item.verificationStatus === HistoricalMetadataVerificationStatus.VERIFIED && item.publicationEligible && CLEARED_RIGHTS.includes(item.rightsStatus) && !item.revokedAt && item.questionVersion.status === QuestionVersionStatus.PUBLISHED && item.questionVersion.publication?.status === PublicationStatus.ACTIVE && item.questionVersion.answerKeys.length > 0 && item.questionVersion.explanations.length > 0 && item.questionVersion.mappings.length > 0 && new Set(item.questionVersion.reviews.map((review) => review.reviewerId)).size >= 2;
-      if (ready) counts.ready++;
-      const key = [item.examCycle.examination.code, item.examCycle.code, item.subjectCode, item.paper ?? 'UNSPECIFIED', item.languageCode ?? 'UNSPECIFIED'].join('|');
-      const current = byScope.get(key) ?? { examinationCode: item.examCycle.examination.code, family: item.examinationFamily, cycleCode: item.examCycle.code, subjectCode: item.subjectCode, paper: item.paper ?? 'UNSPECIFIED', language: item.languageCode ?? 'UNSPECIFIED', total: 0, ready: 0 };
-      current.total++; if (ready) current.ready++; byScope.set(key, current);
+      const reviewReady = new Set(item.questionVersion.reviews.map((review) => review.reviewerId)).size >= 2;
+      if (!reviewReady) counts.reviewPending++;
+      const scope = item.rightsScope && typeof item.rightsScope === 'object' && !Array.isArray(item.rightsScope) ? item.rightsScope as { allowedUses?: unknown[]; languages?: unknown[] } : undefined;
+      const rightsReady = CLEARED_RIGHTS.includes(item.rightsStatus) && !item.revokedAt && (!item.rightsExpiresAt || item.rightsExpiresAt > new Date()) && Boolean(scope?.allowedUses?.includes('PYQ_DISCOVERY') && scope.languages?.some((value) => String(value).toLowerCase() === '*' || String(value).toLowerCase() === (item.languageCode ?? '').toLowerCase()));
+      if (!rightsReady) counts.rightsPending++;
+      const ready = item.verificationStatus === HistoricalMetadataVerificationStatus.VERIFIED && item.publicationEligible && rightsReady && item.examinationFamily === item.examCycle.examination.family && item.subjectCode === item.questionVersion.question.subjectCode && reviewReady && item.questionVersion.status === QuestionVersionStatus.PUBLISHED && item.questionVersion.publication?.status === PublicationStatus.ACTIVE && item.questionVersion.answerKeys.length > 0 && item.questionVersion.explanations.length > 0 && item.questionVersion.mappings.length > 0;
+      if (ready) counts.publicationReady++;
+      const mappings = item.questionVersion.mappings.length ? item.questionVersion.mappings : [{ syllabusTopic: { code: 'UNMAPPED', title: 'Topic mapping pending', subjectUnit: { code: 'UNMAPPED', title: 'Unit mapping pending' } } }];
+      for (const mapping of mappings) {
+        const key = [item.examCycle.examination.code, item.examCycle.code, item.subjectCode, item.paper ?? 'UNSPECIFIED', item.languageCode ?? 'UNSPECIFIED', mapping.syllabusTopic.subjectUnit.code, mapping.syllabusTopic.code].join('|');
+        const current = byScope.get(key) ?? { examinationCode: item.examCycle.examination.code, family: item.examinationFamily, cycleCode: item.examCycle.code, subjectCode: item.subjectCode, paper: item.paper ?? 'UNSPECIFIED', language: item.languageCode ?? 'UNSPECIFIED', unit: mapping.syllabusTopic.subjectUnit.title, topic: mapping.syllabusTopic.title, reviewStatus: reviewReady ? 'REVIEWED' : 'REVIEW_PENDING', rightsStatus: rightsReady ? String(item.rightsStatus) : 'PENDING', sourceVerification: String(item.verificationStatus), publicationEligible: item.publicationEligible, total: 0, ready: 0 };
+        current.total++; if (ready) current.ready++; byScope.set(key, current);
+      }
     }
-    return { scope: examinationCode ? code(examinationCode) : 'ALL_EXAMINATIONS', counts, byScope: [...byScope.values()], policy: 'Only VERIFIED, non-revoked, rights-cleared, publication-eligible records with published qualified question versions are student-discoverable.' };
+    return { scope: examinationCode ? code(examinationCode) : 'ALL_EXAMINATIONS', counts, byScope: [...byScope.values()], policy: 'Only VERIFIED, non-revoked, rights-cleared, explicitly scoped, publication-eligible records with published qualified question versions are student-discoverable.' };
   }
 
   async mocks(examinationCode: string, subjectCode?: string) {
