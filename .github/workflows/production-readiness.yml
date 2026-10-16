@@ -49,8 +49,11 @@ jobs:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/netslet_stageb_ci?schema=public
       STAGE_A_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/netslet_stageb_ci?schema=public
       REDIS_URL: redis://localhost:6379
-      WEB_ORIGINS: ${{ vars.PRODUCTION_WEB_ORIGIN }}
-      NEXT_PUBLIC_API_BASE_URL: ${{ vars.PRODUCTION_API_BASE_URL }}
+      # This job validates a release artifact in an isolated CI container. Use
+      # reserved non-routable HTTPS values when production variables are absent;
+      # no deployment or external request uses these values.
+      WEB_ORIGINS: ${{ vars.PRODUCTION_WEB_ORIGIN || 'https://netslet-web.invalid' }}
+      NEXT_PUBLIC_API_BASE_URL: ${{ vars.PRODUCTION_API_BASE_URL || 'https://netslet-api.invalid' }}
       STAGE_B_CI: '1'
     steps:
       - uses: actions/checkout@v4
