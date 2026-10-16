@@ -8,7 +8,7 @@ export type HistoricalPyqImportRecord = Record<string, unknown>;
 export type HistoricalPyqImportInput = { sourceName: string; sourceChecksum: string; format: 'JSON' | 'CSV'; records?: unknown; csv?: string };
 
 const SHA256 = /^[a-f0-9]{64}$/i;
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{11}$/i;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const MAX_SOURCE_BYTES = 2 * 1024 * 1024;
 const REQUIRED_CSV_HEADERS = ['questionVersionId', 'sourceChecksum'];
 const CLEARED_RIGHTS = new Set<RightsStatus>([RightsStatus.OWNED, RightsStatus.LICENSED, RightsStatus.PERMISSION_GRANTED, RightsStatus.PUBLIC_DOMAIN]);
