@@ -174,16 +174,17 @@ export class AttemptsService {
       const selection = [...new Set(parsed.selectedOptionIds)];
       if (selection.some((option) => !options.includes(option))) throw new BadRequestException('Selected option is not available for this question');
       if (policy === 'SINGLE_SELECT' && selection.length > 1) throw new BadRequestException('Single-select questions accept at most one option');
-      const fingerprint = sha256({ questionVersionId, selectedOptionIds: selection, markedForReview: parsed.markedForReview, expectedRevision: parsed.expectedRevision });
+      const currentAnswer = attempt.answers.find((answer) => answer.questionVersionId === questionVersionId);
+      const effectiveMarkedForReview = parsed.markedForReview ?? currentAnswer?.markedForReview ?? false;
+      const fingerprint = sha256({ questionVersionId, selectedOptionIds: selection, markedForReview: effectiveMarkedForReview, expectedRevision: parsed.expectedRevision });
       const prior = await tx.attemptAnswerEvent.findUnique({ where: { attemptId_idempotencyKey: { attemptId, idempotencyKey: parsed.idempotencyKey } } });
       if (prior) {
         if (prior.fingerprint !== fingerprint) throw new ConflictException('Idempotency key was already used with different content');
-        const current = attempt.answers.find((answer) => answer.questionVersionId === questionVersionId);
-        return { kind: 'SAVED' as const, response: { accepted: true as const, attemptRevision: attempt.revision, answer: { questionVersionId, selectedOptionIds: jsonArray(prior.selectedOptionIds), markedForReview: current?.markedForReview ?? false } } };
+        return { kind: 'SAVED' as const, response: { accepted: true as const, attemptRevision: attempt.revision, answer: { questionVersionId, selectedOptionIds: jsonArray(prior.selectedOptionIds), markedForReview: effectiveMarkedForReview } } };
       }
       if (attempt.revision !== parsed.expectedRevision) throw new ConflictException('Attempt has changed; reload before retrying');
       await tx.attempt.updateMany({ where: { id: attempt.id, accountId, revision: parsed.expectedRevision }, data: { revision: { increment: 1 } } }).then((result) => { if (result.count !== 1) throw new ConflictException('Attempt has changed; reload before retrying'); });
-      const answer = await tx.attemptAnswer.upsert({ where: { attemptId_questionVersionId: { attemptId, questionVersionId } }, update: { selectedOptionIds: selection as Prisma.InputJsonValue, markedForReview: parsed.markedForReview, revision: { increment: 1 }, lastIdempotencyKey: parsed.idempotencyKey }, create: { attemptId, questionVersionId, selectedOptionIds: selection as Prisma.InputJsonValue, markedForReview: parsed.markedForReview, lastIdempotencyKey: parsed.idempotencyKey } });
+      const answer = await tx.attemptAnswer.upsert({ where: { attemptId_questionVersionId: { attemptId, questionVersionId } }, update: { selectedOptionIds: selection as Prisma.InputJsonValue, markedForReview: effectiveMarkedForReview, revision: { increment: 1 }, lastIdempotencyKey: parsed.idempotencyKey }, create: { attemptId, questionVersionId, selectedOptionIds: selection as Prisma.InputJsonValue, markedForReview: effectiveMarkedForReview, lastIdempotencyKey: parsed.idempotencyKey } });
       await tx.attemptAnswerEvent.create({ data: { attemptId, questionVersionId, sequence: attempt.revision + 1, selectedOptionIds: selection as Prisma.InputJsonValue, fingerprint, idempotencyKey: parsed.idempotencyKey } });
       await tx.auditEvent.create({ data: { type: AuditEventType.ANSWER_SAVED, accountId, attemptId, questionVersionId, metadata: { attemptRevision: attempt.revision + 1 } } });
       return { kind: 'SAVED' as const, response: { accepted: true as const, attemptRevision: attempt.revision + 1, answer: { questionVersionId, selectedOptionIds: selection, markedForReview: answer.markedForReview } } };
@@ -239,10 +240,10 @@ export class AttemptsService {
     return { testFormId, idempotencyKey };
   }
 
-  private parseAnswer(input: unknown): { selectedOptionIds: string[]; markedForReview: boolean; expectedRevision: number; idempotencyKey: string } {
+  private parseAnswer(input: unknown): { selectedOptionIds: string[]; markedForReview?: boolean; expectedRevision: number; idempotencyKey: string } {
     const value = jsonObject(input);
     const selectedOptionIds = Array.isArray(value.selectedOptionIds) && value.selectedOptionIds.every((item) => typeof item === 'string') ? [...value.selectedOptionIds] as string[] : [];
-    const markedForReview = value.markedForReview === true;
+    const markedForReview = typeof value.markedForReview === 'boolean' ? value.markedForReview : undefined;
     const expectedRevision = typeof value.expectedRevision === 'number' ? value.expectedRevision : Number.NaN;
     const idempotencyKey = typeof value.idempotencyKey === 'string' ? value.idempotencyKey.trim() : '';
     if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0 || !idempotencyKey || idempotencyKey.length > 160) throw new BadRequestException('Answer revision and idempotency key are required');

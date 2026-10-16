@@ -1,10 +1,10 @@
-export interface NavigationSection { readonly key: string; readonly questionVersionIds: readonly string[]; }
+export interface NavigationSection { readonly key: string; readonly sequence: number; readonly questionVersionIds: readonly string[]; }
 
 /** Builds a stable candidate navigation order from the immutable form contract. */
 export function flattenNavigation(sections: readonly NavigationSection[]): string[] {
   const seen = new Set<string>();
   const result: string[] = [];
-  for (const section of [...sections].sort((left, right) => left.key.localeCompare(right.key))) {
+  for (const section of [...sections].sort((left, right) => left.sequence - right.sequence)) {
     for (const questionVersionId of section.questionVersionIds) {
       if (!seen.has(questionVersionId)) { seen.add(questionVersionId); result.push(questionVersionId); }
     }
