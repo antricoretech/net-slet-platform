@@ -94,7 +94,6 @@ export function CbtAttemptPlayer({ attemptId }: { attemptId: string }) {
     finally { setBusy(false); }
   };
   const submit = async () => {
-    if (!window.confirm('Submit this attempt? You will not be able to change answers afterward.')) return;
     setBusy(true); setError('');
     try { const active = data.state.sessions.find((session) => session.status === 'IN_PROGRESS'); if (active) await apiFetch(`/attempts/${attemptId}/sessions/${active.id}/submit`, { method: 'POST' }); const finalResult = await apiFetch<ResultResponse>(`/attempts/${attemptId}/submit`, { method: 'POST' }); setResult(finalResult); try { setLearning(await apiFetch<LearningResponse>(`/attempts/${attemptId}/learning-summary`)); } catch { setLearning(undefined); } }
     catch (caught) { setError(caught instanceof Error ? caught.message : 'The attempt could not be submitted.'); }
