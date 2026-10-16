@@ -51,6 +51,8 @@ export function CbtAttemptPlayer({ attemptId }: { attemptId: string }) {
     } catch (caught) { setError(caught instanceof Error ? caught.message : 'The attempt could not be loaded.'); }
   }, [attemptId]);
 
+  // The authenticated loader intentionally hydrates this client boundary from the server.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void load(); }, [load]);
   useEffect(() => { if (!data?.state.deadlineAt || result) return undefined; const timer = window.setInterval(() => setSeconds(Math.max(0, Math.floor((Date.parse(data.state.deadlineAt!) - Date.now()) / 1000))), 1000); return () => window.clearInterval(timer); }, [data?.state.deadlineAt, result]);
 
@@ -67,7 +69,10 @@ export function CbtAttemptPlayer({ attemptId }: { attemptId: string }) {
   const activeSection = activeNavigation?.sections.find((section) => section.key === sectionKey) ?? activeNavigation?.sections[0];
   const questions = activeSection?.questions ?? data?.form.sections.flatMap((section) => section.questions) ?? [];
   const current = questions[index];
+  // Navigation defaults are derived from the server-published form after hydration.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { if (activeNavigation && activeNavigation.session.key !== sessionKey) setSessionKey(activeNavigation.session.key); }, [activeNavigation, sessionKey]);
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { if (activeSection && activeSection.key !== sectionKey) { setSectionKey(activeSection.key); setIndex(0); } }, [activeSection, sectionKey]);
   const switchSection = (nextSessionKey: string, nextSectionKey: string) => { setSessionKey(nextSessionKey); setSectionKey(nextSectionKey); setIndex(0); setMessage(''); };
 
