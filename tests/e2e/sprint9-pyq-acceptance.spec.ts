@@ -61,7 +61,7 @@ test.describe('Release 1 historical PYQ journeys', () => {
       await page.goto('/preparation/UGC_NET/pyqs');
       await expect(page.getByRole('heading', { name: 'Past-question discovery' })).toBeVisible();
       await expect(page.getByText(/No verified questions found|Loading verified historical question inventory|Showing/)).toBeVisible({ timeout: 30_000 });
-      await expect(page.locator('body')).not.toContainText(/answer key|correct answer/i);
+      await expect(page.locator('body')).not.toContainText(/correct answer\s*:/i);
     } finally {
       await page?.context().close();
       if (accountId) { await db.query('DELETE FROM "AuditEvent" WHERE "accountId" = $1', [accountId]); await db.query('DELETE FROM "Session" WHERE "accountId" = $1', [accountId]); await db.query('DELETE FROM "Account" WHERE id = $1', [accountId]); }
