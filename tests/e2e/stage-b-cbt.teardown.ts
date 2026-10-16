@@ -21,12 +21,17 @@ export default async function globalTeardown(_config: FullConfig) {
   const identity = await client.query('SELECT current_database() AS name, inet_server_port() AS port');
   if (!String(identity.rows[0]?.name).startsWith('netslet_stageb_') || identity.rows[0]?.port !== 5432) throw new Error('E2E teardown refuses a non-disposable Stage B database');
   const accountIds = [fixture.studentA.id, fixture.studentB.id, fixture.admin.id];
+  const publishedContent = await client.query('SELECT EXISTS (SELECT 1 FROM "QuestionVersion" qv JOIN "Question" q ON q.id = qv."questionId" WHERE q."examCycleId" = $1 AND qv.status = \'PUBLISHED\') AS present', [fixture.cycleId]);
+  // Published fixtures are intentionally immutable. The CI database is disposable,
+  // so retain that content rather than bypassing the production trigger in teardown.
+  const retainPublishedContent = Boolean(publishedContent.rows[0]?.present);
   for (const form of fixture.forms) {
     await client.query('DELETE FROM "Attempt" WHERE "testFormId" = $1', [form.formId]);
     await client.query('DELETE FROM "TestForm" WHERE id = $1', [form.formId]);
-    await client.query('DELETE FROM "Question" WHERE id = $1', [form.questionId]);
+    if (!retainPublishedContent) await client.query('DELETE FROM "Question" WHERE id = $1', [form.questionId]);
     await client.query('DELETE FROM "ExamPatternVersion" WHERE id = $1', [form.patternId]);
   }
+  if (retainPublishedContent) { await client.end(); return; }
   const syllabusVersionIds = [...new Set(fixture.forms.map((form) => form.syllabusVersionId))];
   const subjectUnitIds = [...new Set(fixture.forms.map((form) => form.subjectUnitId))];
   const topicIds = [...new Set(fixture.forms.map((form) => form.topicId))];
