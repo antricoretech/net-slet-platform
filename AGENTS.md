@@ -35,3 +35,11 @@ Read `docs/requirements/Project_NET_SLET_Master_Knowledge_Base_v2_2.md` **before
 
 ## First Codex task
 Read the full baseline and current repository, review the Sprint 0 checklist, verify dependency compatibility, install packages on the user's machine, generate the Prisma client/migration, run local Docker services and checks. **Do not implement Sprint 1 authentication or test-taking functionality before the foundation passes and approval is received.**
+
+## Development efficiency policy
+- Work in small, reviewable increments and inspect existing contracts before adding abstractions.
+- Reuse established services, guards, repositories, fixtures and test helpers; do not duplicate domain logic.
+- Prefer deterministic, side-effect-free rules and explicit typed boundaries before UI work.
+- Run narrow relevant checks after each increment, then the full applicable validation matrix before handoff.
+- Keep diagnostics, generated files and protected artifacts separate from source changes unless explicitly required.
+- Never report a check, approval, deployment or remote result that was not directly observed.
