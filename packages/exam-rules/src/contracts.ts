@@ -7,7 +7,7 @@ export interface CandidateSection { readonly key: string; readonly sequence: num
 export interface CandidateBlueprintSummary { readonly examCode: string; readonly cycleCode: string; readonly subjectCode: string; readonly sections: readonly CandidateSection[]; }
 export interface CandidateInstructions { readonly title: string; readonly body: readonly string[]; readonly noOfficialStatusNotice: string; }
 export interface CandidateAttemptState { readonly status: 'CREATED' | 'READY' | 'IN_PROGRESS' | 'SUBMITTED' | 'EXPIRED'; readonly deadlineAt?: string; readonly remainingSeconds: number; readonly currentQuestionIndex: number; }
-export interface AnswerSaveRequest { readonly attemptId: string; readonly questionVersionId: string; readonly selectedOptionIds: readonly string[]; readonly expectedRevision: number; readonly idempotencyKey: string; }
+export interface AnswerSaveRequest { readonly attemptId: string; readonly questionVersionId: string; readonly selectedOptionIds: readonly string[]; readonly markedForReview?: boolean; readonly expectedRevision: number; readonly idempotencyKey: string; }
 export interface TimerInfo { readonly deadlineAt: string; readonly serverNow: string; readonly remainingSeconds: number; }
 export interface TestFormSnapshot { readonly snapshotId: string; readonly snapshotHash: string; readonly generatedAt: string; readonly seed: string; readonly blueprint: CandidateBlueprintSummary; readonly sections: readonly { readonly key: string; readonly sequence: number; readonly questions: readonly StudentQuestionProjection[] }[]; }
 export type BlueprintForForm = ExamBlueprint & { readonly version?: number; readonly ruleHash?: string };
