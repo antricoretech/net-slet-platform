@@ -19,6 +19,7 @@ export class PreparationController {
   @Get(':examinationCode/paper-ii/:subjectCode') paperII(@Param('examinationCode') examinationCode: string, @Param('subjectCode') subjectCode: string) { return this.preparation.subjectOverview(examinationCode, subjectCode); }
   @Get(':examinationCode/practice') practice(@Param('examinationCode') examinationCode: string, @Query('subjectCode') subjectCode?: string, @Query('topicId') topicId?: string) { return this.preparation.practice(examinationCode, subjectCode ?? 'PAPER_I', topicId); }
   @Get(':examinationCode/pyqs') pyqs(@Param('examinationCode') examinationCode: string, @Query() query: Record<string, unknown>) { return this.preparation.pyqs(examinationCode, query); }
+  @Get(':examinationCode/pyqs/:questionVersionId') historicalQuestion(@Param('examinationCode') examinationCode: string, @Param('questionVersionId') questionVersionId: string, @Query('language') language?: string, @Query('use') use?: 'QUESTION_DISPLAY' | 'PRACTICE_USE' | 'MOCK_USE') { return this.preparation.historicalQuestion(examinationCode, questionVersionId, language, use); }
   @Get(':examinationCode/mocks') mocks(@Param('examinationCode') examinationCode: string, @Query('subjectCode') subjectCode?: string) { return this.preparation.mocks(examinationCode, subjectCode); }
   @Get('learning/summary') learning(@Req() request: RequestLike) { return this.preparation.learningSummary(request.user!.id); }
 }

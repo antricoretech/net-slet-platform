@@ -102,6 +102,18 @@ enum HistoricalMetadataRecordStatus {
   DUPLICATE
 }
 
+enum HistoricalMetadataGovernanceStatus {
+  IMPORTED
+  VALIDATED
+  ACADEMICALLY_REVIEWED
+  RIGHTS_VERIFIED
+  APPROVED
+  PUBLICATION_ELIGIBLE
+  REJECTED
+  REVOKED
+  SUPERSEDED
+}
+
 enum HistoricalMetadataImportStatus {
   DRY_RUN
   VALIDATED
@@ -150,6 +162,9 @@ enum GovernanceApprovalType {
   RESULT_PUBLICATION
   ANSWER_KEY_CORRECTION
   RESULT_RESCORE
+  HISTORICAL_METADATA_ACADEMIC_REVIEW
+  HISTORICAL_METADATA_RIGHTS_VERIFICATION
+  HISTORICAL_METADATA_PUBLICATION
 }
 
 enum GovernanceApprovalStatus {
@@ -200,6 +215,14 @@ enum AuditEventType {
   HISTORICAL_METADATA_IMPORT_COMMITTED
   HISTORICAL_METADATA_IMPORT_REJECTED
   HISTORICAL_METADATA_VERIFIED
+  HISTORICAL_METADATA_VALIDATED
+  HISTORICAL_METADATA_ACADEMICALLY_REVIEWED
+  HISTORICAL_METADATA_RIGHTS_VERIFIED
+  HISTORICAL_METADATA_APPROVED
+  HISTORICAL_METADATA_PUBLICATION_ELIGIBLE
+  HISTORICAL_METADATA_REJECTED
+  HISTORICAL_METADATA_REVOKED
+  HISTORICAL_METADATA_SUPERSEDED
   ATTEMPT_CREATED
   ATTEMPT_STARTED
   ANSWER_SAVED
@@ -403,6 +426,7 @@ model HistoricalQuestionMetadata {
   examCycle             ExamCycle                           @relation(fields: [examCycleId], references: [id], onDelete: Restrict)
   examinationFamily     ExamFamilyCode
   recordStatus          HistoricalMetadataRecordStatus      @default(IMPORTED)
+  governanceStatus      HistoricalMetadataGovernanceStatus  @default(IMPORTED)
   authority             String                              @db.VarChar(200)
   sourceYear            Int?
   historicalCycle       String?                             @db.VarChar(80)
@@ -429,9 +453,11 @@ model HistoricalQuestionMetadata {
   createdAt             DateTime                            @default(now())
   updatedAt             DateTime                            @updatedAt
   importRows            HistoricalMetadataImportRow[]
+  governanceApprovals   GovernanceApproval[]
 
   @@index([examCycleId, sourceYear, session, paper, subjectCode, languageCode])
   @@index([verificationStatus, publicationEligible, rightsStatus])
+  @@index([governanceStatus, updatedAt])
 }
 
 model HistoricalMetadataImport {
@@ -1204,6 +1230,8 @@ model GovernanceApproval {
   targetAttempt Attempt? @relation(fields: [targetAttemptId], references: [id], onDelete: Restrict)
   targetQuestionVersionId String? @db.Uuid
   targetQuestionVersion QuestionVersion? @relation(fields: [targetQuestionVersionId], references: [id], onDelete: Restrict)
+  targetHistoricalMetadataId String? @db.Uuid
+  targetHistoricalMetadata HistoricalQuestionMetadata? @relation(fields: [targetHistoricalMetadataId], references: [id], onDelete: Restrict)
   scope Json
   reviewerId String @db.Uuid
   reviewer Account @relation("GovernanceApprovalReviewers", fields: [reviewerId], references: [id], onDelete: Restrict)
@@ -1218,6 +1246,8 @@ model GovernanceApproval {
   @@index([type, status, createdAt])
   @@index([targetAttemptId, type])
   @@index([targetQuestionVersionId, type])
+  @@index([targetHistoricalMetadataId, type, status])
+  @@unique([targetHistoricalMetadataId, type, status])
 }
 
 model ScoreRunLineage {
