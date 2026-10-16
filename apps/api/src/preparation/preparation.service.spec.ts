@@ -7,10 +7,10 @@ describe('PreparationService', () => {
     const database = { examSubject: { findMany: jest.fn(async () => [
       { code: 'CS', name: 'Computer Science', status: PatternStatus.PUBLISHED, examCycle: { code: '2026-JUNE' } },
       { code: 'CS', name: 'Computer Science', status: PatternStatus.APPROVED, examCycle: { code: '2025-DECEMBER' } },
-      { code: 'RESEARCH', name: 'Research Only', status: PatternStatus.RESEARCH_ONLY, examCycle: { code: '2026-JUNE' } },
     ]) } };
     const result = await new PreparationService(database as unknown as PrismaService).subjects('UGC_NET');
     expect(result.data).toEqual([{ code: 'CS', name: 'Computer Science', status: PatternStatus.PUBLISHED, historicalCycles: ['2026-JUNE', '2025-DECEMBER'] }]);
+    expect(database.examSubject.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ status: { in: [PatternStatus.APPROVED, PatternStatus.PUBLISHED] } }) }));
   });
 
   it('returns a rights-safe empty state when no published syllabus exists', async () => {
