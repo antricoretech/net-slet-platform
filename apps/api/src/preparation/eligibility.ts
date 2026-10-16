@@ -22,6 +22,49 @@ export type FormEligibilityEvidence = {
 
 const hasClearedRights = (rights: readonly (RightsStatus | string)[]) => rights.length > 0 && rights.every((right) => (CLEARED_RIGHTS as readonly string[]).includes(right));
 
+export const HISTORICAL_PYQ_DISCOVERY_USE = 'PYQ_DISCOVERY';
+export type HistoricalRightsScope = { allowedUses: unknown[]; languages: unknown[]; geography?: unknown; expiresAt?: unknown };
+export type HistoricalMetadataEligibilityEvidence = {
+  verificationStatus: string;
+  recordStatus: string;
+  publicationEligible: boolean;
+  rightsStatus: RightsStatus | string;
+  rightsScope: unknown;
+  rightsExpiresAt?: Date | null;
+  revokedAt?: Date | null;
+  requestedLanguage?: string;
+  examinationFamilyMatches: boolean;
+  subjectMatches: boolean;
+  question: QuestionEligibilityEvidence;
+};
+
+function normalizedScope(value: unknown): HistoricalRightsScope | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const scope = value as HistoricalRightsScope;
+  return Array.isArray(scope.allowedUses) && Array.isArray(scope.languages) ? scope : undefined;
+}
+
+export function evaluateHistoricalMetadataEligibility(evidence: HistoricalMetadataEligibilityEvidence, now = new Date()) {
+  const reasons = [...evaluateQuestionEligibility(evidence.question).reasons];
+  if (evidence.verificationStatus !== 'VERIFIED') reasons.push('METADATA_NOT_VERIFIED');
+  if (!['IMPORTED', 'VALIDATED', 'VERIFIED'].includes(evidence.recordStatus)) reasons.push('METADATA_RECORD_NOT_ACTIVE');
+  if (!evidence.publicationEligible) reasons.push('METADATA_PUBLICATION_NOT_ELIGIBLE');
+  if (!hasClearedRights([evidence.rightsStatus])) reasons.push('METADATA_RIGHTS_NOT_CLEARED');
+  if (evidence.revokedAt && evidence.revokedAt <= now) reasons.push('METADATA_RIGHTS_REVOKED');
+  if (evidence.rightsExpiresAt && evidence.rightsExpiresAt <= now) reasons.push('METADATA_RIGHTS_EXPIRED');
+  if (!evidence.examinationFamilyMatches) reasons.push('EXAMINATION_FAMILY_MISMATCH');
+  if (!evidence.subjectMatches) reasons.push('SUBJECT_MISMATCH');
+  const scope = normalizedScope(evidence.rightsScope);
+  if (!scope) reasons.push('RIGHTS_SCOPE_MISSING_OR_AMBIGUOUS');
+  else {
+    if (!scope.allowedUses.includes(HISTORICAL_PYQ_DISCOVERY_USE)) reasons.push('RIGHTS_SCOPE_USE_NOT_ALLOWED');
+    const language = evidence.requestedLanguage?.trim().toLowerCase();
+    const languages = scope.languages.map((item) => typeof item === 'string' ? item.trim().toLowerCase() : '').filter(Boolean);
+    if (language && !languages.includes('*') && !languages.includes(language)) reasons.push('RIGHTS_SCOPE_LANGUAGE_NOT_ALLOWED');
+  }
+  return { eligible: reasons.length === 0, reasons };
+}
+
 export function evaluateQuestionEligibility(evidence: QuestionEligibilityEvidence) {
   const reasons: string[] = [];
   if (evidence.status !== QuestionVersionStatus.PUBLISHED) reasons.push('QUESTION_NOT_PUBLISHED');

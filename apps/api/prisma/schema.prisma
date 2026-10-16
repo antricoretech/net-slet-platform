@@ -94,6 +94,27 @@ enum HistoricalMetadataVerificationStatus {
   REJECTED
 }
 
+enum HistoricalMetadataRecordStatus {
+  IMPORTED
+  VALIDATED
+  VERIFIED
+  REJECTED
+  DUPLICATE
+}
+
+enum HistoricalMetadataImportStatus {
+  DRY_RUN
+  VALIDATED
+  COMMITTED
+  PARTIAL_REJECTED
+}
+
+enum HistoricalMetadataImportRowStatus {
+  ACCEPTED
+  REJECTED
+  DUPLICATE
+}
+
 enum ChallengeCategory {
   INCORRECT_ANSWER_KEY
   AMBIGUOUS_QUESTION
@@ -175,6 +196,10 @@ enum AuditEventType {
   QUESTION_CHALLENGED
   QUESTION_CHALLENGE_RESOLVED
   QUESTION_TRANSLATION_REVIEWED
+  HISTORICAL_METADATA_IMPORT_DRY_RUN
+  HISTORICAL_METADATA_IMPORT_COMMITTED
+  HISTORICAL_METADATA_IMPORT_REJECTED
+  HISTORICAL_METADATA_VERIFIED
   ATTEMPT_CREATED
   ATTEMPT_STARTED
   ANSWER_SAVED
@@ -377,6 +402,7 @@ model HistoricalQuestionMetadata {
   examCycleId           String                              @db.Uuid
   examCycle             ExamCycle                           @relation(fields: [examCycleId], references: [id], onDelete: Restrict)
   examinationFamily     ExamFamilyCode
+  recordStatus          HistoricalMetadataRecordStatus      @default(IMPORTED)
   authority             String                              @db.VarChar(200)
   sourceYear            Int?
   historicalCycle       String?                             @db.VarChar(80)
@@ -391,15 +417,60 @@ model HistoricalQuestionMetadata {
   answerKeyProvenance   String?                             @db.Text
   rightsStatus          RightsStatus                        @default(UNKNOWN)
   rightsScope           Json?
+  rightsEvidenceReference String?                           @db.Text
+  rightsExpiresAt       DateTime?
+  rightsLicenceId       String?                             @db.Uuid
+  rightsLicence         ContentLicence?                     @relation(fields: [rightsLicenceId], references: [id], onDelete: Restrict)
+  metadataFingerprint   String?                             @unique @db.Char(64)
   publicationEligible   Boolean                             @default(false)
   verificationStatus    HistoricalMetadataVerificationStatus @default(UNVERIFIED)
   verifiedAt            DateTime?
   revokedAt             DateTime?
   createdAt             DateTime                            @default(now())
   updatedAt             DateTime                            @updatedAt
+  importRows            HistoricalMetadataImportRow[]
 
   @@index([examCycleId, sourceYear, session, paper, subjectCode, languageCode])
   @@index([verificationStatus, publicationEligible, rightsStatus])
+}
+
+model HistoricalMetadataImport {
+  id              String                         @id @default(uuid()) @db.Uuid
+  manifestHash    String                         @unique @db.Char(64)
+  sourceName      String                         @db.VarChar(240)
+  sourceChecksum  String                         @db.Char(64)
+  format          String                         @db.VarChar(16)
+  status          HistoricalMetadataImportStatus @default(DRY_RUN)
+  rowCount        Int                            @default(0)
+  acceptedCount   Int                            @default(0)
+  rejectedCount   Int                            @default(0)
+  duplicateCount  Int                            @default(0)
+  createdById     String                         @db.Uuid
+  createdBy       Account                        @relation("HistoricalMetadataImports", fields: [createdById], references: [id], onDelete: Restrict)
+  rows            HistoricalMetadataImportRow[]
+  createdAt       DateTime                       @default(now())
+  committedAt     DateTime?
+
+  @@index([createdById, createdAt])
+}
+
+model HistoricalMetadataImportRow {
+  id                  String                              @id @default(uuid()) @db.Uuid
+  importId            String                              @db.Uuid
+  import              HistoricalMetadataImport            @relation(fields: [importId], references: [id], onDelete: Cascade)
+  rowNumber           Int
+  questionVersionId   String?                             @db.Uuid
+  metadataId          String?                             @db.Uuid
+  metadata            HistoricalQuestionMetadata?         @relation(fields: [metadataId], references: [id], onDelete: SetNull)
+  fingerprint         String?                             @db.Char(64)
+  payload             Json
+  status              HistoricalMetadataImportRowStatus   @default(REJECTED)
+  rejectionReasons    Json?
+  createdAt           DateTime                            @default(now())
+
+  @@unique([importId, rowNumber])
+  @@index([questionVersionId])
+  @@index([metadataId])
 }
 
 model QuestionOption {
@@ -527,6 +598,7 @@ model ContentLicence {
   createdById       String          @db.Uuid
   createdBy         Account         @relation("LicenceAuthors", fields: [createdById], references: [id], onDelete: Restrict)
   createdAt         DateTime        @default(now())
+  historicalMetadata HistoricalQuestionMetadata[]
 }
 
 model QuestionReview {
@@ -840,6 +912,7 @@ model Account {
   answerKeyCorrections     AnswerKeyCorrection[]       @relation("CorrectionAuthorizers")
   authorizedRescores       ScoreRunLineage[]            @relation("RescoreAuthorizers")
   governanceApprovals      GovernanceApproval[]         @relation("GovernanceApprovalReviewers")
+  historicalMetadataImports HistoricalMetadataImport[]   @relation("HistoricalMetadataImports")
 }
 
 model Session {
