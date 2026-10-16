@@ -9,6 +9,8 @@ export type HistoricalPyqImportInput = { sourceName: string; sourceChecksum: str
 
 const SHA256 = /^[a-f0-9]{64}$/i;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{12}$/i;
+const MAX_SOURCE_BYTES = 2 * 1024 * 1024;
+const REQUIRED_CSV_HEADERS = ['questionVersionId', 'sourceChecksum'];
 const CLEARED_RIGHTS = new Set<RightsStatus>([RightsStatus.OWNED, RightsStatus.LICENSED, RightsStatus.PERMISSION_GRANTED, RightsStatus.PUBLIC_DOMAIN]);
 
 function stable(value: unknown): string {
@@ -20,11 +22,49 @@ function stable(value: unknown): string {
 function fingerprint(value: unknown) { return createHash('sha256').update(stable(value)).digest('hex'); }
 
 function csvRecords(source: string): HistoricalPyqImportRecord[] {
-  const rows = source.split(/\r?\n/).filter((row) => row.trim());
+  if (Buffer.byteLength(source, 'utf8') > MAX_SOURCE_BYTES) throw new BadRequestException('CSV input exceeds the 2 MiB upload limit');
+  const rows: string[][] = [];
+  let cells: string[] = [];
+  let current = '';
+  let quoted = false;
+  let afterQuote = false;
+  const pushCell = () => { cells.push(current.trim()); current = ''; afterQuote = false; };
+  const pushRow = () => { if (cells.some((cell) => cell.length) || current.length) { pushCell(); rows.push(cells); cells = []; } };
+  for (let index = 0; index < source.length; index++) {
+    const character = source[index];
+    if (quoted) {
+      if (character === '"' && source[index + 1] === '"') { current += '"'; index++; }
+      else if (character === '"') { quoted = false; afterQuote = true; }
+      else current += character;
+      continue;
+    }
+    if (afterQuote) {
+      if (character === ',') pushCell();
+      else if (character === '\r' || character === '\n') { pushRow(); if (character === '\r' && source[index + 1] === '\n') index++; }
+      else if (!/\s/.test(character)) throw new BadRequestException('Malformed CSV: unexpected characters after a quoted field');
+      continue;
+    }
+    if (character === '"' && current.trim() === '') quoted = true;
+    else if (character === ',') pushCell();
+    else if (character === '\r' || character === '\n') { pushRow(); if (character === '\r' && source[index + 1] === '\n') index++; }
+    else current += character;
+  }
+  if (quoted) throw new BadRequestException('Malformed CSV: unterminated quoted field');
+  if (current.length || cells.length) pushRow();
   if (!rows.length) return [];
-  const parseRow = (row: string) => { const cells: string[] = []; let current = ''; let quoted = false; for (let index = 0; index < row.length; index++) { const character = row[index]; if (character === '"' && row[index + 1] === '"') { current += '"'; index++; } else if (character === '"') quoted = !quoted; else if (character === ',' && !quoted) { cells.push(current.trim()); current = ''; } else current += character; } cells.push(current.trim()); return cells; };
-  const headers = parseRow(rows[0]);
-  return rows.slice(1).map((row) => Object.fromEntries(parseRow(row).map((value, index) => [headers[index], value])));
+  const headers = rows[0].map((header, index) => (index === 0 ? header.replace(/^\uFEFF/, '') : header).trim());
+  const normalizedHeaders = headers.map((header) => header.toLowerCase());
+  if (headers.some((header) => !header) || new Set(normalizedHeaders).size !== headers.length) throw new BadRequestException('CSV headers must be non-empty and unique');
+  const missing = REQUIRED_CSV_HEADERS.filter((header) => !normalizedHeaders.includes(header.toLowerCase()));
+  if (missing.length) throw new BadRequestException(`CSV required headers missing: ${missing.join(', ')}`);
+  return rows.slice(1).map((row, rowIndex) => {
+    if (row.length !== headers.length) throw new BadRequestException(`Malformed CSV row ${rowIndex + 2}: column count does not match headers`);
+    const record = Object.fromEntries(row.map((value, index) => [headers[index], value]));
+    if (typeof record.rightsScope === 'string' && record.rightsScope.trim()) {
+      try { record.rightsScope = JSON.parse(record.rightsScope); } catch { throw new BadRequestException(`Malformed CSV row ${rowIndex + 2}: rightsScope must be valid JSON`); }
+    }
+    return record;
+  });
 }
 
 function recordsFromInput(input: HistoricalPyqImportInput): HistoricalPyqImportRecord[] {
@@ -32,6 +72,11 @@ function recordsFromInput(input: HistoricalPyqImportInput): HistoricalPyqImportR
   if (!Array.isArray(input.records)) throw new BadRequestException('JSON records must be an array');
   if (input.records.some((record) => !record || typeof record !== 'object' || Array.isArray(record))) throw new BadRequestException('Every JSON record must be an object');
   return input.records as HistoricalPyqImportRecord[];
+}
+
+function contentChecksum(records: HistoricalPyqImportRecord[]) {
+  const canonicalRecords = records.map((record) => Object.fromEntries(Object.entries(record).filter(([key]) => key !== 'sourceChecksum')));
+  return createHash('sha256').update(Buffer.from(stable(canonicalRecords), 'utf8')).digest('hex');
 }
 
 function stringField(record: HistoricalPyqImportRecord, key: string) { const value = record[key]; return typeof value === 'string' && value.trim() ? value.trim() : undefined; }
@@ -47,15 +92,24 @@ export class HistoricalPyqIngestionService {
     if (input.format !== 'JSON' && input.format !== 'CSV') throw new BadRequestException('format must be JSON or CSV');
     const records = recordsFromInput(input);
     const normalized = { sourceName: input.sourceName?.trim(), sourceChecksum: input.sourceChecksum?.trim().toLowerCase(), format: input.format, records };
+    if (normalized.sourceChecksum !== contentChecksum(records)) throw new BadRequestException('sourceChecksum does not match the canonical source payload');
     const manifestHash = fingerprint(normalized);
     const existing = await this.database.historicalMetadataImport.findUnique({ where: { manifestHash }, select: { id: true, status: true, rowCount: true, acceptedCount: true, rejectedCount: true, duplicateCount: true } });
     if (existing) return { manifestId: existing.id, manifestHash, idempotent: true, ...existing };
     const validation = await this.validate(normalized);
-    const created = await this.database.$transaction(async (tx) => {
-      const manifest = await tx.historicalMetadataImport.create({ data: { manifestHash, sourceName: normalized.sourceName, sourceChecksum: normalized.sourceChecksum, format: normalized.format, status: validation.rejectedCount ? HistoricalMetadataImportStatus.PARTIAL_REJECTED : HistoricalMetadataImportStatus.VALIDATED, rowCount: records.length, acceptedCount: validation.acceptedCount, rejectedCount: validation.rejectedCount, duplicateCount: validation.duplicateCount, createdById: actorId, rows: { create: validation.rows.map((row) => ({ rowNumber: row.rowNumber, questionVersionId: row.questionVersionId, fingerprint: row.fingerprint, payload: row.payload as Prisma.InputJsonValue, status: row.status, rejectionReasons: row.reasons.length ? row.reasons : undefined })) } } });
-      await tx.auditEvent.create({ data: { type: validation.rejectedCount ? AuditEventType.HISTORICAL_METADATA_IMPORT_REJECTED : AuditEventType.HISTORICAL_METADATA_IMPORT_DRY_RUN, accountId: actorId, metadata: { manifestId: manifest.id, manifestHash, rowCount: records.length, acceptedCount: validation.acceptedCount, rejectedCount: validation.rejectedCount, duplicateCount: validation.duplicateCount } } });
-      return manifest;
-    });
+    let created;
+    try {
+      created = await this.database.$transaction(async (tx) => {
+        const manifest = await tx.historicalMetadataImport.create({ data: { manifestHash, sourceName: normalized.sourceName, sourceChecksum: normalized.sourceChecksum, format: normalized.format, status: validation.rejectedCount ? HistoricalMetadataImportStatus.PARTIAL_REJECTED : HistoricalMetadataImportStatus.VALIDATED, rowCount: records.length, acceptedCount: validation.acceptedCount, rejectedCount: validation.rejectedCount, duplicateCount: validation.duplicateCount, createdById: actorId, rows: { create: validation.rows.map((row) => ({ rowNumber: row.rowNumber, questionVersionId: row.questionVersionId, fingerprint: row.fingerprint, payload: row.payload as Prisma.InputJsonValue, status: row.status, rejectionReasons: row.reasons.length ? row.reasons : undefined })) } } });
+        await tx.auditEvent.create({ data: { type: validation.rejectedCount ? AuditEventType.HISTORICAL_METADATA_IMPORT_REJECTED : AuditEventType.HISTORICAL_METADATA_IMPORT_DRY_RUN, accountId: actorId, metadata: { manifestId: manifest.id, manifestHash, rowCount: records.length, acceptedCount: validation.acceptedCount, rejectedCount: validation.rejectedCount, duplicateCount: validation.duplicateCount } } });
+        return manifest;
+      });
+    } catch (error) {
+      if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') throw error;
+      const raced = await this.database.historicalMetadataImport.findUnique({ where: { manifestHash }, select: { id: true, status: true, rowCount: true, acceptedCount: true, rejectedCount: true, duplicateCount: true } });
+      if (!raced) throw error;
+      return { manifestId: raced.id, manifestHash, idempotent: true, ...raced };
+    }
     return { manifestId: created.id, manifestHash, status: created.status, rowCount: created.rowCount, acceptedCount: created.acceptedCount, rejectedCount: created.rejectedCount, duplicateCount: created.duplicateCount, rows: validation.rows.map(({ rowNumber, status, reasons }) => ({ rowNumber, status, reasons })) };
   }
 
