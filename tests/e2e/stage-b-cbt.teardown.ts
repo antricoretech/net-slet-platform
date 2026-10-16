@@ -26,6 +26,7 @@ export default async function globalTeardown(_config: FullConfig) {
   // so retain that content rather than bypassing the production trigger in teardown.
   const retainPublishedContent = Boolean(publishedContent.rows[0]?.present);
   for (const form of fixture.forms) {
+    await client.query('DELETE FROM "GovernanceApproval" WHERE "targetAttemptId" IN (SELECT id FROM "Attempt" WHERE "testFormId" = $1)', [form.formId]);
     await client.query('DELETE FROM "Attempt" WHERE "testFormId" = $1', [form.formId]);
     await client.query('DELETE FROM "TestForm" WHERE id = $1', [form.formId]);
     if (!retainPublishedContent) await client.query('DELETE FROM "Question" WHERE id = $1', [form.questionId]);

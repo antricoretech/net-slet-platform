@@ -83,7 +83,7 @@ export class ResultGovernanceService {
       await this.lock(tx, attemptId);
       const correction = await tx.answerKeyCorrection.findUnique({ where: { id: correctionId }, include: { originalAnswerKeyVersion: true, revisedAnswerKeyVersion: true } });
       if (!correction) throw new NotFoundException('Answer-key correction not found');
-      await this.requireApproval(tx, approvalReferenceValue, GovernanceApprovalType.RESULT_RESCORE, actorId, { attemptId, questionVersionId: correction.questionVersionId, correctionId });
+      await this.requireApproval(tx, approvalReferenceValue, GovernanceApprovalType.RESULT_RESCORE, actorId, { attemptId, correctionId });
       const existing = await tx.scoreRunLineage.findUnique({ where: { idempotencyKey }, include: { revisedScoreRun: true } });
       if (existing) {
         if (existing.attemptId !== attemptId || existing.correctionId !== correctionId || existing.approvalReference !== approvalReferenceValue || existing.reason !== reason) throw new ConflictException('Idempotency key was already used for a different rescore request');
