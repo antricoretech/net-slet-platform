@@ -4,7 +4,7 @@ import { createRequire } from 'node:module';
 import { test, expect, type Page } from '@playwright/test';
 
 test.describe.configure({ mode: 'serial' });
-const fixture = JSON.parse(fs.readFileSync(path.resolve('test-results/stage-b-e2e/fixture.json'), 'utf8')) as { api: string; password: string; studentA: { email: string; id: string }; studentB: { email: string; id: string }; forms: Array<{ formId: string; subjectCode: string; durationSeconds: number; versionId: string }> };
+const fixture = JSON.parse(fs.readFileSync(path.resolve('test-results/stage-b-e2e/fixture.json'), 'utf8')) as { api: string; password: string; studentA: { email: string; id: string }; studentB: { email: string; id: string }; admin: { email: string; id: string }; forms: Array<{ formId: string; subjectCode: string; durationSeconds: number; versionId: string }> };
 const api = fixture.api;
 let attemptId = '';
 const requireFromApi = createRequire(path.resolve('apps/api/package.json'));
@@ -79,7 +79,18 @@ test('authenticated student completes persistent CBT lifecycle and safely resume
   expect(history.body.source).toBe('RELEASED_LEARNING_HISTORY');
   expect(history.body).toMatchObject({ topics: [], mistakes: [], recommendations: [] });
 
-  await isolatedQuery('UPDATE "AttemptResult" SET status = \'PUBLISHED\', "releasedAt" = CURRENT_TIMESTAMP WHERE "attemptId" = $1', [attemptId]);
+  const adminContext = await page.context().browser()!.newContext();
+  const adminPage = await adminContext.newPage();
+  await signIn(adminPage, fixture.admin.email);
+  const publication = await adminPage.evaluate(async ({ base, id }) => { const response = await fetch(`${base}/admin/results/${id}/publish`, { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ approvalReference: 'REL-G13-E2E-001', reason: 'E2E owner-approved publication' }) }); return { status: response.status, body: await response.json() }; }, { base: api, id: attemptId }) as { status: number; body: { status: string } };
+  expect(publication).toMatchObject({ status: 201, body: { status: 'PUBLISHED' } });
+  const correction = await adminPage.evaluate(async ({ base, questionVersionId }) => { const response = await fetch(`${base}/admin/results/answer-key-corrections/${questionVersionId}`, { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ approvalReference: 'KEY-G13-E2E-001', reason: 'E2E verified key correction', correctAnswers: ['B'], evidence: { reviewerId: 'external-reviewer-g13', decision: 'APPROVED', reviewedAt: new Date().toISOString(), source: 'E2E review record' } }) }); return { status: response.status, body: await response.json() }; }, { base: api, questionVersionId: fixture.forms.find((form) => form.subjectCode === 'PERSISTENT')!.versionId }) as { status: number; body: { correctionId: string } };
+  expect(correction.status).toBe(201);
+  const rescore = await adminPage.evaluate(async ({ base, id, correctionId }) => { const response = await fetch(`${base}/admin/results/${id}/rescore`, { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ correctionId, approvalReference: 'RESCORE-G13-E2E-001', reason: 'E2E authorized rescore', idempotencyKey: 'RESCORE-G13-E2E-001' }) }); return { status: response.status, body: await response.json() }; }, { base: api, id: attemptId, correctionId: correction.body.correctionId }) as { status: number; body: { status: string; scoreRunReference: string } };
+  expect(rescore.status).toBe(201);
+  const rescoreRetry = await adminPage.evaluate(async ({ base, id, correctionId }) => { const response = await fetch(`${base}/admin/results/${id}/rescore`, { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ correctionId, approvalReference: 'RESCORE-G13-E2E-001', reason: 'E2E authorized rescore', idempotencyKey: 'RESCORE-G13-E2E-001' }) }); return { status: response.status, body: await response.json() }; }, { base: api, id: attemptId, correctionId: correction.body.correctionId }) as { status: number; body: { status: string; scoreRunReference: string } };
+  expect(rescoreRetry).toMatchObject({ status: 201, body: { status: 'IDEMPOTENT', scoreRunReference: rescore.body.scoreRunReference } });
+  await adminContext.close();
   const released = await page.evaluate(async ({ base, id }) => { const response = await fetch(`${base}/attempts/${id}/learning-summary`, { credentials: 'include' }); return { status: response.status, body: await response.json() }; }, { base: api, id: attemptId }) as { status: number; body: { available: boolean; releaseStatus: string; durableEvidence: unknown[] } };
   expect(released.status).toBe(200);
   expect(released.body).toMatchObject({ available: true, releaseStatus: 'PUBLISHED' });

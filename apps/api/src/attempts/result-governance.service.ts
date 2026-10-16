@@ -8,6 +8,17 @@ type JsonRecord = Record<string, unknown>;
 const record = (value: unknown): JsonRecord => value && typeof value === 'object' && !Array.isArray(value) ? value as JsonRecord : {};
 const strings = (value: unknown): string[] => Array.isArray(value) && value.every((item) => typeof item === 'string') ? [...value] : [];
 const text = (value: unknown, label: string): string => { if (typeof value !== 'string' || !value.trim() || value.length > 160) throw new ConflictException(`${label} is required`); return value.trim(); };
+const approvalReference = (value: unknown): string => {
+  const reference = text(value, 'approvalReference');
+  if (!/^[A-Z][A-Z0-9._:-]{2,159}$/.test(reference)) throw new ConflictException('approvalReference must be an authorized record reference');
+  return reference;
+};
+
+function approvalEvidence(value: unknown): Prisma.InputJsonValue {
+  const evidence = record(value);
+  if (typeof evidence.reviewerId !== 'string' || !evidence.reviewerId.trim() || evidence.decision !== 'APPROVED' || typeof evidence.reviewedAt !== 'string' || Number.isNaN(Date.parse(evidence.reviewedAt)) || typeof evidence.source !== 'string' || !evidence.source.trim()) throw new ConflictException('Evidence must identify an approving reviewer, decision, date and source');
+  return evidence as Prisma.InputJsonValue;
+}
 
 function parsePolicy(snapshot: unknown): ScoringPolicyConfig & { attemptCeilings?: Readonly<Record<string, number>> } {
   const config = record(record(snapshot).scoringPolicy);
@@ -28,7 +39,7 @@ export class ResultGovernanceService {
 
   async publish(attemptId: string, actorId: string, input: unknown) {
     const body = record(input);
-    const approvalReference = text(body.approvalReference, 'approvalReference');
+    const approvalReferenceValue = approvalReference(body.approvalReference);
     const reason = text(body.reason, 'reason');
     return this.database.$transaction(async (tx) => {
       await this.lock(tx, attemptId);
@@ -36,8 +47,8 @@ export class ResultGovernanceService {
       if (!result) throw new NotFoundException('Result not found');
       if (result.status === ResultReleaseStatus.PUBLISHED) return this.publicResult(result);
       if (result.attempt.status !== AttemptStatus.SUBMITTED && result.attempt.status !== AttemptStatus.EXPIRED) throw new ConflictException('Only terminal attempts may be published');
-      const published = await tx.attemptResult.update({ where: { id: result.id }, data: { status: ResultReleaseStatus.PUBLISHED, releasedAt: new Date(), releasedById: actorId, releaseApprovalReference: approvalReference, releaseReason: reason }, include: { scoreRun: true } });
-      await tx.auditEvent.create({ data: { type: AuditEventType.RESULT_RELEASED, accountId: actorId, attemptId, metadata: { resultId: result.id, approvalReference, reason, priorStatus: result.status } } });
+      const published = await tx.attemptResult.update({ where: { id: result.id }, data: { status: ResultReleaseStatus.PUBLISHED, releasedAt: new Date(), releasedById: actorId, releaseApprovalReference: approvalReferenceValue, releaseReason: reason }, include: { scoreRun: true } });
+      await tx.auditEvent.create({ data: { type: AuditEventType.RESULT_RELEASED, accountId: actorId, attemptId, metadata: { resultId: result.id, approvalReference: approvalReferenceValue, reason, priorStatus: result.status } } });
       return this.publicResult(published);
     });
   }
@@ -45,21 +56,21 @@ export class ResultGovernanceService {
   async authorizeCorrection(questionVersionId: string, actorId: string, input: unknown) {
     const body = record(input);
     const reason = text(body.reason, 'reason');
-    const approvalReference = text(body.approvalReference, 'approvalReference');
-    const evidence = body.evidence && typeof body.evidence === 'object' ? body.evidence : undefined;
-    if (!evidence) throw new ConflictException('Evidence is required');
+    const approvalReferenceValue = approvalReference(body.approvalReference);
+    const evidence = approvalEvidence(body.evidence);
     const correctAnswers = strings(body.correctAnswers);
     if (!correctAnswers.length) throw new ConflictException('At least one corrected answer is required');
     return this.database.$transaction(async (tx) => {
       const revision = await tx.questionVersion.findUnique({ where: { id: questionVersionId }, include: { answerKeys: { orderBy: { version: 'desc' }, take: 1 }, options: true, question: true } });
       if (!revision || !revision.answerKeys[0]) throw new NotFoundException('Approved answer key not found');
       if (revision.status !== QuestionVersionStatus.PUBLISHED) throw new ConflictException('Only published question revisions may receive a correction');
-      if (revision.options.some((option) => !correctAnswers.includes(option.optionKey)) || correctAnswers.some((key) => !revision.options.some((option) => option.optionKey === key))) throw new ConflictException('Correction references an option outside the question version');
+      const normalizedAnswers = correctAnswers.map((answer) => revision.options.find((option) => option.id === answer || option.optionKey === answer)?.id);
+      if (normalizedAnswers.some((answer): answer is undefined => !answer)) throw new ConflictException('Correction references an option outside the question version');
       const original = revision.answerKeys[0];
-      const revised = await tx.questionAnswerKeyVersion.create({ data: { questionVersionId, version: original.version + 1, correctAnswers: correctAnswers as unknown as Prisma.InputJsonValue, exactMatch: body.exactMatch === true, createdById: actorId } });
-      const correction = await tx.answerKeyCorrection.create({ data: { questionVersionId, originalAnswerKeyVersionId: original.id, revisedAnswerKeyVersionId: revised.id, authorizedById: actorId, reason, evidence: evidence as Prisma.InputJsonValue, approvalReference } });
-      await tx.auditEvent.create({ data: { type: AuditEventType.ANSWER_KEY_CORRECTION_APPROVED, accountId: actorId, questionVersionId, metadata: { correctionId: correction.id, originalAnswerKeyVersionId: original.id, revisedAnswerKeyVersionId: revised.id, approvalReference } } });
-      return { correctionId: correction.id, questionVersionId, originalAnswerKeyVersionId: original.id, revisedAnswerKeyVersionId: revised.id, approvalReference };
+      const revised = await tx.questionAnswerKeyVersion.create({ data: { questionVersionId, version: original.version + 1, correctAnswers: normalizedAnswers as unknown as Prisma.InputJsonValue, exactMatch: body.exactMatch === true, createdById: actorId } });
+      const correction = await tx.answerKeyCorrection.create({ data: { questionVersionId, originalAnswerKeyVersionId: original.id, revisedAnswerKeyVersionId: revised.id, authorizedById: actorId, reason, evidence, approvalReference: approvalReferenceValue } });
+      await tx.auditEvent.create({ data: { type: AuditEventType.ANSWER_KEY_CORRECTION_APPROVED, accountId: actorId, questionVersionId, metadata: { correctionId: correction.id, originalAnswerKeyVersionId: original.id, revisedAnswerKeyVersionId: revised.id, approvalReference: approvalReferenceValue } } });
+      return { correctionId: correction.id, questionVersionId, originalAnswerKeyVersionId: original.id, revisedAnswerKeyVersionId: revised.id, approvalReference: approvalReferenceValue };
     });
   }
 
@@ -67,12 +78,15 @@ export class ResultGovernanceService {
     const body = record(input);
     const correctionId = text(body.correctionId, 'correctionId');
     const reason = text(body.reason, 'reason');
-    const approvalReference = text(body.approvalReference, 'approvalReference');
+    const approvalReferenceValue = approvalReference(body.approvalReference);
     const idempotencyKey = text(body.idempotencyKey, 'idempotencyKey');
     return this.database.$transaction(async (tx) => {
       await this.lock(tx, attemptId);
       const existing = await tx.scoreRunLineage.findUnique({ where: { idempotencyKey }, include: { revisedScoreRun: true } });
-      if (existing) return { attemptId, status: 'IDEMPOTENT', lineageId: existing.id, scoreRunReference: existing.revisedScoreRun.scoreRunHash };
+      if (existing) {
+        if (existing.attemptId !== attemptId || existing.correctionId !== correctionId || existing.approvalReference !== approvalReferenceValue || existing.reason !== reason) throw new ConflictException('Idempotency key was already used for a different rescore request');
+        return { attemptId, status: 'IDEMPOTENT', lineageId: existing.id, scoreRunReference: existing.revisedScoreRun.scoreRunHash };
+      }
       const correction = await tx.answerKeyCorrection.findUnique({ where: { id: correctionId }, include: { originalAnswerKeyVersion: true, revisedAnswerKeyVersion: true } });
       if (!correction) throw new NotFoundException('Answer-key correction not found');
       const attempt = await tx.attempt.findUnique({ where: { id: attemptId }, include: { result: { include: { scoreRun: true } }, answerEvents: { orderBy: { sequence: 'asc' } }, testForm: { include: { questions: { orderBy: { sequence: 'asc' }, include: { answerKeyVersion: true } } } } } });
@@ -92,8 +106,8 @@ export class ResultGovernanceService {
       const current = attempt.result;
       const summary = { scoreRunReference: run.scoreRunHash, policyId: scored.policyId, policyVersion: scored.policyVersion, scale: scored.scale, totalMarksScaled: scored.totalMarksScaled, maximumMarksScaled: scored.maximumMarksScaled, correct: scored.correct, incorrect: scored.incorrect, unattempted: scored.unattempted, attempted: scored.attempted, dropped: scored.dropped, papers: scored.papers };
       await tx.attemptResult.update({ where: { id: current.id }, data: { scoreRunId: run.id, summary: summary as unknown as Prisma.InputJsonValue } });
-      const lineage = await tx.scoreRunLineage.create({ data: { attemptId, originalScoreRunId: current.scoreRunId!, revisedScoreRunId: run.id, originalAnswerKeyReferences: attempt.testForm.questions.map((item) => ({ questionVersionId: item.questionVersionId, answerKeyVersionId: item.answerKeyVersionId })), revisedAnswerKeyReferences: keyRefs.map((item) => ({ questionVersionId: item.questionVersionId, answerKeyVersionId: item.answerKeyVersionId, version: item.version })), reason, approvalReference, idempotencyKey, authorizedById: actorId } });
-      await tx.auditEvent.create({ data: { type: AuditEventType.RESULT_RESCORED, accountId: actorId, attemptId, metadata: { lineageId: lineage.id, correctionId, originalScoreRunId: current.scoreRunId, revisedScoreRunId: run.id, approvalReference } } });
+      const lineage = await tx.scoreRunLineage.create({ data: { attemptId, originalScoreRunId: current.scoreRunId!, revisedScoreRunId: run.id, correctionId, originalAnswerKeyReferences: attempt.testForm.questions.map((item) => ({ questionVersionId: item.questionVersionId, answerKeyVersionId: item.answerKeyVersionId })), revisedAnswerKeyReferences: keyRefs.map((item) => ({ questionVersionId: item.questionVersionId, answerKeyVersionId: item.answerKeyVersionId, version: item.version })), reason, approvalReference: approvalReferenceValue, idempotencyKey, authorizedById: actorId } });
+      await tx.auditEvent.create({ data: { type: AuditEventType.RESULT_RESCORED, accountId: actorId, attemptId, metadata: { lineageId: lineage.id, correctionId, originalScoreRunId: current.scoreRunId, revisedScoreRunId: run.id, approvalReference: approvalReferenceValue } } });
       await this.learning.rebuildForAttempt(tx, attempt.accountId, attemptId);
       return { attemptId, status: 'RESCORED', lineageId: lineage.id, scoreRunReference: run.scoreRunHash, releaseStatus: current.status };
     });

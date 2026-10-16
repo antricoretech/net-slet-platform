@@ -35,6 +35,8 @@ export default async function globalSetup(_config: FullConfig) {
   const suffix = uuid().slice(0, 8);
   const studentA = { email: `stageb-e2e-a-${suffix}@example.test`, id: await register(`stageb-e2e-a-${suffix}@example.test`, password) };
   const studentB = { email: `stageb-e2e-b-${suffix}@example.test`, id: await register(`stageb-e2e-b-${suffix}@example.test`, password) };
+  const admin = { email: `stageb-e2e-admin-${suffix}@example.test`, id: await register(`stageb-e2e-admin-${suffix}@example.test`, password) };
+  await client.query('UPDATE "Account" SET role = \'ADMIN\' WHERE id = $1', [admin.id]);
   const organizerId = uuid();
   const examinationId = uuid();
   const cycleId = uuid();
@@ -57,7 +59,7 @@ export default async function globalSetup(_config: FullConfig) {
       const question = { questionVersionId: versionId, type: 'SINGLE_CHOICE', prompt: `${subjectCode} fixture question ${index + 1}`, options: [{ id: optionA, label: 'Correct option' }, { id: optionB, label: 'Other option' }], languageCode: 'en' };
       questions.push(question);
       await client.query('INSERT INTO "Question" (id, "examCycleId", "subjectCode", "createdById", "updatedAt") VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)', [questionId, cycleId, subjectCode, studentA.id]);
-      await client.query('INSERT INTO "QuestionVersion" (id, "questionId", version, status, type, prompt, "authoredById", "updatedAt") VALUES ($1, $2, 1, \'DRAFT\', \'SINGLE_CHOICE\', $3::jsonb, $4, CURRENT_TIMESTAMP)', [versionId, questionId, JSON.stringify({ text: question.prompt }), studentA.id]);
+      await client.query('INSERT INTO "QuestionVersion" (id, "questionId", version, status, type, prompt, "authoredById", "updatedAt") VALUES ($1, $2, 1, \'PUBLISHED\', \'SINGLE_CHOICE\', $3::jsonb, $4, CURRENT_TIMESTAMP)', [versionId, questionId, JSON.stringify({ text: question.prompt }), studentA.id]);
       await client.query('INSERT INTO "QuestionOption" (id, "questionVersionId", "optionKey", "optionText", sequence, "updatedAt") VALUES ($1, $2, \'A\', $3::jsonb, 0, CURRENT_TIMESTAMP), ($4, $2, \'B\', $5::jsonb, 1, CURRENT_TIMESTAMP)', [optionA, versionId, JSON.stringify({ text: 'Correct option' }), optionB, JSON.stringify({ text: 'Other option' })]);
       await client.query('INSERT INTO "QuestionAnswerKeyVersion" (id, "questionVersionId", version, "correctAnswers", "createdById") VALUES ($1, $2, 1, $3::jsonb, $4)', [answerKeyVersionId, versionId, JSON.stringify([optionA]), studentA.id]);
       await client.query('INSERT INTO "QuestionSyllabusMapping" (id, "questionVersionId", "syllabusTopicId") VALUES ($1, $2, $3)', [uuid(), versionId, topicId]);
@@ -70,5 +72,5 @@ export default async function globalSetup(_config: FullConfig) {
   }
   await client.end();
   fs.mkdirSync(path.dirname(outputPath), { recursive: true });
-  fs.writeFileSync(outputPath, JSON.stringify({ api, password, studentA, studentB, examinationId, cycleId, forms: entities }, null, 2));
+  fs.writeFileSync(outputPath, JSON.stringify({ api, password, studentA, studentB, admin, examinationId, cycleId, forms: entities }, null, 2));
 }

@@ -24,4 +24,9 @@ describe('ResultGovernanceService', () => {
     expect(tx.attemptResult.update).not.toHaveBeenCalled();
     expect(tx.auditEvent.create).not.toHaveBeenCalled();
   });
+
+  test('rejects unstructured authorization references before opening a transaction', async () => {
+    const { governance } = service({ id: 'result-1', attemptId: 'attempt-1', status: 'PENDING', attempt: { status: 'SUBMITTED' }, scoreRun: { scoreRunHash: 'hash-1' } });
+    await expect(governance.publish('attempt-1', 'admin-1', { approvalReference: 'owner approved', reason: 'Release' })).rejects.toThrow('authorized record reference');
+  });
 });

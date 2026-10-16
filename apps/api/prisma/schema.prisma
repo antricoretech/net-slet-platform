@@ -1053,6 +1053,7 @@ model AnswerKeyCorrection {
   evidence Json
   approvalReference String @unique @db.VarChar(160)
   createdAt DateTime @default(now())
+  rescoreLineages ScoreRunLineage[]
 
   @@index([questionVersionId, createdAt])
 }
@@ -1065,6 +1066,8 @@ model ScoreRunLineage {
   originalScoreRun ScoreRun @relation("OriginalScoreRun", fields: [originalScoreRunId], references: [id], onDelete: Restrict)
   revisedScoreRunId String @unique @db.Uuid
   revisedScoreRun ScoreRun @relation("RevisedScoreRun", fields: [revisedScoreRunId], references: [id], onDelete: Restrict)
+  correctionId String @db.Uuid
+  correction AnswerKeyCorrection @relation(fields: [correctionId], references: [id], onDelete: Restrict)
   originalAnswerKeyReferences Json
   revisedAnswerKeyReferences Json
   reason String @db.Text

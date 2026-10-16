@@ -9,7 +9,9 @@ G13 adds an administrator-only, auditable result-publication path and a correcti
 - Candidate access is ownership-scoped and never exposes answer keys, options, private review evidence or unreleased explanations.
 - `TestFormQuestion.answerKeyVersionId` remains the original immutable scoring reference. A correction may be used only when it explicitly names that pinned key.
 - Publication and rescore require an administrator, reason, approval reference and durable audit event.
+- Approval references must be structured owner-record identifiers; correction evidence must identify an approving reviewer, an `APPROVED` decision, review timestamp and evidence source. Free-form notes are rejected.
 - Publication is idempotent; rescore is idempotent by caller-supplied key and serialized by the attempt advisory lock.
+- Reusing an idempotency key with a different attempt, correction, reason or approval reference is rejected; a retry with the same request returns the original lineage.
 - Historical score runs and correction records are append-only. The current `AttemptResult.scoreRunId` is the only active pointer.
 
 ## Delivery sequence

@@ -11,7 +11,7 @@ export default async function globalTeardown(_config: FullConfig) {
   const fixturePath = path.resolve('test-results/stage-b-e2e/fixture.json');
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl || !fs.existsSync(fixturePath)) return;
-  const fixture = JSON.parse(fs.readFileSync(fixturePath, 'utf8')) as { studentA: { id: string }; studentB: { id: string }; examinationId: string; cycleId: string; forms: Array<{ formId: string; patternId: string; questionId: string; syllabusVersionId: string; subjectUnitId: string; topicId: string }> };
+  const fixture = JSON.parse(fs.readFileSync(fixturePath, 'utf8')) as { studentA: { id: string }; studentB: { id: string }; admin: { id: string }; examinationId: string; cycleId: string; forms: Array<{ formId: string; patternId: string; questionId: string; syllabusVersionId: string; subjectUnitId: string; topicId: string }> };
   const parsed = new URL(databaseUrl);
   const isLocalStageB = parsed.port === '55434';
   const isCiStageB = process.env.STAGE_B_CI === '1' && parsed.port === '5432' && parsed.pathname === '/netslet_stageb_ci';
@@ -20,7 +20,7 @@ export default async function globalTeardown(_config: FullConfig) {
   await client.connect();
   const identity = await client.query('SELECT current_database() AS name, inet_server_port() AS port');
   if (!String(identity.rows[0]?.name).startsWith('netslet_stageb_') || identity.rows[0]?.port !== 5432) throw new Error('E2E teardown refuses a non-disposable Stage B database');
-  const accountIds = [fixture.studentA.id, fixture.studentB.id];
+  const accountIds = [fixture.studentA.id, fixture.studentB.id, fixture.admin.id];
   for (const form of fixture.forms) {
     await client.query('DELETE FROM "Attempt" WHERE "testFormId" = $1', [form.formId]);
     await client.query('DELETE FROM "TestForm" WHERE id = $1', [form.formId]);

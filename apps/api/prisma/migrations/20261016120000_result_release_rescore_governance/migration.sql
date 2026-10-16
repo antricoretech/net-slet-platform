@@ -37,6 +37,7 @@ CREATE TABLE "ScoreRunLineage" (
   "attemptId" UUID NOT NULL,
   "originalScoreRunId" UUID NOT NULL,
   "revisedScoreRunId" UUID NOT NULL,
+  "correctionId" UUID NOT NULL,
   "originalAnswerKeyReferences" JSONB NOT NULL,
   "revisedAnswerKeyReferences" JSONB NOT NULL,
   "reason" TEXT NOT NULL,
@@ -51,6 +52,7 @@ CREATE UNIQUE INDEX "ScoreRunLineage_idempotencyKey_key" ON "ScoreRunLineage"("i
 CREATE UNIQUE INDEX "ScoreRunLineage_attemptId_originalScoreRunId_key" ON "ScoreRunLineage"("attemptId", "originalScoreRunId");
 CREATE INDEX "ScoreRunLineage_attemptId_createdAt_idx" ON "ScoreRunLineage"("attemptId", "createdAt");
 ALTER TABLE "ScoreRunLineage"
+  ADD CONSTRAINT "ScoreRunLineage_correctionId_fkey" FOREIGN KEY ("correctionId") REFERENCES "AnswerKeyCorrection"("id") ON DELETE RESTRICT ON UPDATE CASCADE,
   ADD CONSTRAINT "ScoreRunLineage_attemptId_fkey" FOREIGN KEY ("attemptId") REFERENCES "Attempt"("id") ON DELETE CASCADE ON UPDATE CASCADE,
   ADD CONSTRAINT "ScoreRunLineage_originalScoreRunId_fkey" FOREIGN KEY ("originalScoreRunId") REFERENCES "ScoreRun"("id") ON DELETE RESTRICT ON UPDATE CASCADE,
   ADD CONSTRAINT "ScoreRunLineage_revisedScoreRunId_fkey" FOREIGN KEY ("revisedScoreRunId") REFERENCES "ScoreRun"("id") ON DELETE RESTRICT ON UPDATE CASCADE,
