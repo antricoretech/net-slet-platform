@@ -4,8 +4,8 @@
 
 - PR #6 G13: open at `4440f8904448ba09fe9c6348ab62564e3f7d3b44`; required owner reviews are not recorded, so it was not merged.
 - PR #7 readiness: open at `dc6c7e4ef1e0cd0161d2bd18a7da599582ad91c1`; CI run `38871856515` and production-readiness run `38872149407` passed.
-- This sprint branch: `feature/release-1-acceptance-sprint`, stacked on PR #7. No merge, deployment or active-database operation is authorized.
-- A new PR and exact head SHA are recorded only after the branch is validated and published; the branch must remain unmerged pending review.
+- This sprint branch: `feature/release-1-acceptance-sprint`, commit `53df3e58449e1f4a5ff97604ee6424d3a55f3131`, stacked on PR #7.
+- PR #8: open, base `feature/release-1-readiness`; PR CI run `38875388003` passed and production-readiness run `38875627153` passed at the exact head. No merge, deployment or active-database operation is authorized.
 
 ## B. Academic acceptance
 
@@ -31,7 +31,7 @@
 
 ## D. QA evidence
 
-The acceptance contract and its unit tests are included in this branch. PR #7’s exact CI and production-readiness runs passed the previously validated migration, typecheck, unit, lint, build, integration, browser and security stages. Local full-repository checks must be reported from an environment with dependencies installed; no local result is inferred from remote CI.
+The acceptance contract and its unit tests are included in this branch. PR #8 CI passed migration replay, typecheck, unit, lint, build, database integration and Playwright stages. PR #8 production-readiness passed security scans, migration deployment, typecheck, tests, lint, build, integration and image checks. Local full-repository checks were not completed because the isolated worktree had no usable installed toolchain; no local result is inferred from remote CI.
 
 ## E. Safety
 
