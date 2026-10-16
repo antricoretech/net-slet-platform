@@ -15,7 +15,7 @@ describe('cycle-independent continuous preparation', () => {
   });
   it('resolves one current verified pattern and rejects missing or research-only evidence', () => {
     expect(resolveCurrentPattern({ examinationCode: 'UGC_NET', product: 'FULL_MOCK', subjectCode: 'CS', asOf: '2026-05-01T00:00:00Z', candidates: [candidate()] }).state).toBe('RESOLVED');
-    expect(resolveCurrentPattern({ examinationCode: 'UGC_NET', product: 'FULL_MOCK', subjectCode: 'CS', asOf: '2027-05-01T00:00:00Z', candidates: [candidate()] }).state).toBe('NO_APPLICABLE_PATTERN');
+    expect(resolveCurrentPattern({ examinationCode: 'UGC_NET', product: 'FULL_MOCK', subjectCode: 'CS', asOf: '2027-05-01T00:00:00Z', candidates: [candidate({ effectiveTo: '2026-12-31T00:00:00Z' })] }).state).toBe('NO_APPLICABLE_PATTERN');
     expect(resolveCurrentPattern({ examinationCode: 'UGC_NET', product: 'FULL_MOCK', subjectCode: 'CS', asOf: '2026-05-01T00:00:00Z', candidates: [candidate({ status: 'RESEARCH_ONLY', verified: false })] }).state).toBe('RESEARCH_ONLY_PATTERN');
   });
   it('rejects ambiguous competing active patterns unless an approved precedence rule resolves them', () => {
