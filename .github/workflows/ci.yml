@@ -66,7 +66,7 @@ jobs:
         run: pnpm test:integration
       - name: Start API for authenticated historical PYQ acceptance
         run: |
-          nohup pnpm --filter @net-slet/api start > /tmp/netslet-api.log 2>&1 &
+          nohup node apps/api/dist/main.js > /tmp/netslet-api.log 2>&1 &
           echo $! > /tmp/netslet-api.pid
           for attempt in {1..30}; do
             if curl --fail --silent http://127.0.0.1:4000/api/v1/health/ready > /dev/null; then exit 0; fi
@@ -82,7 +82,6 @@ jobs:
         if: always()
         run: |
           if [ -f /tmp/netslet-api.pid ]; then kill "$(cat /tmp/netslet-api.pid)" || true; fi
-          pkill -f '/apps/api/dist/main.js' || true
       - name: Install Playwright browser
         run: pnpm exec playwright install --with-deps chromium
       - name: Browser journeys (Stage B, Sprint 1 and preview safety)
